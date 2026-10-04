@@ -5,3 +5,5 @@ dist/
 Thumbs.db
 *.log
 .vite/
+tmp_edge/
+take_screenshots.js

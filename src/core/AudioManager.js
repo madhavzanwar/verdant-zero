@@ -1,223 +1,163 @@
 /**
- * VERDANT ZERO // Audio Manager
- * Procedural Web Audio API sound generator.
- * Zero external audio assets, zero network latency, 100% offline & client-side.
+ * Layered Procedural Web Audio Synthesizer
+ * - Low deep drone
+ * - Procedural rain sound (filtered noise)
+ * - Distant city hum
+ * - Occasional distant rolling thunder
+ * - Ascending crystal chime on planting + warm swelling life pad
+ * - Starts only on first click with a smooth fade-in
  */
 
 export class AudioManager {
   constructor() {
     this.ctx = null;
-    this.isMuted = localStorage.getItem('vz_audio_muted') === 'true';
     this.masterGain = null;
     this.ambientGain = null;
-    this.ambientNodes = [];
-    this.isAmbientPlaying = false;
-    this.initialized = false;
+    this.isInitialized = false;
+    this.thunderTimer = null;
   }
 
-  /**
-   * Initializes AudioContext upon user gesture to comply with browser autoplay policy.
-   */
   init() {
-    if (this.initialized) return;
+    if (this.isInitialized) return;
 
     try {
-      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-      this.ctx = new AudioContextClass();
-      
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      this.ctx = new AudioCtx();
+
+      // Master Gain starting at 0 for fade in
       this.masterGain = this.ctx.createGain();
-      this.masterGain.gain.setValueAtTime(this.isMuted ? 0 : 0.65, this.ctx.currentTime);
+      this.masterGain.gain.setValueAtTime(0.001, this.ctx.currentTime);
       this.masterGain.connect(this.ctx.destination);
 
+      // Smooth 2.5 second fade in
+      this.masterGain.gain.exponentialRampToValueAtTime(0.65, this.ctx.currentTime + 2.5);
+
       this.ambientGain = this.ctx.createGain();
-      this.ambientGain.gain.setValueAtTime(0.3, this.ctx.currentTime);
+      this.ambientGain.gain.setValueAtTime(0.85, this.ctx.currentTime);
       this.ambientGain.connect(this.masterGain);
 
-      this.initialized = true;
-      this.startAmbientDrone();
+      // Initialize Ambient Layers
+      this.startDeepDrone();
+      this.startRainSound();
+      this.startCityHum();
+      this.scheduleFarThunder();
+
+      this.isInitialized = true;
     } catch (e) {
-      console.warn('Web Audio API not supported or blocked:', e);
+      console.warn('Web Audio API not supported:', e);
     }
   }
 
   ensureContext() {
-    if (!this.initialized) {
+    if (!this.isInitialized) {
       this.init();
     } else if (this.ctx && this.ctx.state === 'suspended') {
       this.ctx.resume();
     }
   }
 
-  /**
-   * Creates a dark cyberpunk ambient background hum.
-   * Uses dual low-frequency detuned oscillators filtered through a slow LFO lowpass filter.
-   */
-  startAmbientDrone() {
-    if (!this.ctx || this.isAmbientPlaying) return;
+  // 1. Low Deep Drone (Blade Runner 2049 sub-bass atmosphere)
+  startDeepDrone() {
+    const t = this.ctx.currentTime;
 
-    try {
-      const t = this.ctx.currentTime;
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(110, t);
+    filter.Q.setValueAtTime(3.5, t);
 
-      // Filter
-      const filter = this.ctx.createBiquadFilter();
-      filter.type = 'lowpass';
-      filter.frequency.setValueAtTime(140, t);
-      filter.Q.setValueAtTime(4.0, t);
+    const osc1 = this.ctx.createOscillator();
+    osc1.type = 'sawtooth';
+    osc1.frequency.setValueAtTime(46.25, t); // F#1
 
-      // Filter LFO for breathing city effect
-      const lfo = this.ctx.createOscillator();
-      const lfoGain = this.ctx.createGain();
-      lfo.frequency.setValueAtTime(0.08, t); // Very slow cycle (12.5 seconds)
-      lfoGain.gain.setValueAtTime(60, t);
-      lfo.connect(lfoGain);
-      lfoGain.connect(filter.frequency);
-      lfo.start(t);
+    const osc2 = this.ctx.createOscillator();
+    osc2.type = 'sine';
+    osc2.frequency.setValueAtTime(46.6, t); // Slight detune for slow beating
 
-      // Low Sub Drone (Oscillator 1)
-      const osc1 = this.ctx.createOscillator();
-      osc1.type = 'sawtooth';
-      osc1.frequency.setValueAtTime(55, t); // A1 note
-      osc1.connect(filter);
-      osc1.start(t);
+    const gain = this.ctx.createGain();
+    gain.gain.setValueAtTime(0.35, t);
 
-      // Detuned Harmonizer (Oscillator 2)
-      const osc2 = this.ctx.createOscillator();
-      osc2.type = 'sine';
-      osc2.frequency.setValueAtTime(54.2, t); // Slight detune for phasing
-      osc2.connect(filter);
-      osc2.start(t);
+    osc1.connect(filter);
+    osc2.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.ambientGain);
 
-      // Subtle High Shimmer (Bioluminescent aura tone)
-      const shimmerFilter = this.ctx.createBiquadFilter();
-      shimmerFilter.type = 'bandpass';
-      shimmerFilter.frequency.setValueAtTime(880, t);
-      shimmerFilter.Q.setValueAtTime(6.0, t);
+    osc1.start(t);
+    osc2.start(t);
+  }
 
-      const shimmerOsc = this.ctx.createOscillator();
-      shimmerOsc.type = 'sine';
-      shimmerOsc.frequency.setValueAtTime(440, t);
+  // 2. Synthesized Rain Sound (Filtered white/pink noise)
+  startRainSound() {
+    const bufferSize = this.ctx.sampleRate * 2;
+    const noiseBuffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+    const output = noiseBuffer.getChannelData(0);
 
-      const shimmerGain = this.ctx.createGain();
-      shimmerGain.gain.setValueAtTime(0.04, t);
-      shimmerOsc.connect(shimmerFilter);
-      shimmerFilter.connect(shimmerGain);
-      shimmerGain.connect(this.ambientGain);
-      shimmerOsc.start(t);
-
-      filter.connect(this.ambientGain);
-
-      this.ambientNodes = [osc1, osc2, lfo, shimmerOsc];
-      this.isAmbientPlaying = true;
-    } catch (e) {
-      console.warn('Could not start ambient drone:', e);
+    // Pink noise generation
+    let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
+    for (let i = 0; i < bufferSize; i++) {
+      const white = Math.random() * 2 - 1;
+      b0 = 0.99886 * b0 + white * 0.0555179;
+      b1 = 0.99332 * b1 + white * 0.0750759;
+      b2 = 0.96900 * b2 + white * 0.1538520;
+      b3 = 0.86650 * b3 + white * 0.3104856;
+      b4 = 0.55000 * b4 + white * 0.5329522;
+      b5 = -0.7616 * b5 - white * 0.0168980;
+      output[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362) * 0.05;
+      b6 = white * 0.115926;
     }
+
+    const whiteNoise = this.ctx.createBufferSource();
+    whiteNoise.buffer = noiseBuffer;
+    whiteNoise.loop = true;
+
+    // Dual filtering for rain texture
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(1200, this.ctx.currentTime);
+    filter.Q.setValueAtTime(0.85, this.ctx.currentTime);
+
+    const rainGain = this.ctx.createGain();
+    rainGain.gain.setValueAtTime(0.24, this.ctx.currentTime);
+
+    whiteNoise.connect(filter);
+    filter.connect(rainGain);
+    rainGain.connect(this.ambientGain);
+
+    whiteNoise.start(this.ctx.currentTime);
   }
 
-  /**
-   * High-tech UI Hover Blip
-   */
-  playHover() {
-    if (this.isMuted || !this.ctx) return;
-    this.ensureContext();
+  // 3. Distant City Hum
+  startCityHum() {
+    const t = this.ctx.currentTime;
+    const humFilter = this.ctx.createBiquadFilter();
+    humFilter.type = 'bandpass';
+    humFilter.frequency.setValueAtTime(220, t);
+    humFilter.Q.setValueAtTime(4.0, t);
 
-    try {
-      const t = this.ctx.currentTime;
-      const osc = this.ctx.createOscillator();
-      const gain = this.ctx.createGain();
+    const humOsc = this.ctx.createOscillator();
+    humOsc.type = 'triangle';
+    humOsc.frequency.setValueAtTime(110, t);
 
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(1400, t);
-      osc.frequency.exponentialRampToValueAtTime(1900, t + 0.04);
+    const humGain = this.ctx.createGain();
+    humGain.gain.setValueAtTime(0.12, t);
 
-      gain.gain.setValueAtTime(0.05, t);
-      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.04);
+    humOsc.connect(humFilter);
+    humFilter.connect(humGain);
+    humGain.connect(this.ambientGain);
 
-      osc.connect(gain);
-      gain.connect(this.masterGain);
-
-      osc.start(t);
-      osc.stop(t + 0.045);
-    } catch (e) {}
+    humOsc.start(t);
   }
 
-  /**
-   * Resonant Cybernetic UI Click
-   */
-  playClick() {
-    if (this.isMuted || !this.ctx) return;
-    this.ensureContext();
-
-    try {
-      const t = this.ctx.currentTime;
-
-      // Primary tone
-      const osc1 = this.ctx.createOscillator();
-      const gain1 = this.ctx.createGain();
-      osc1.type = 'triangle';
-      osc1.frequency.setValueAtTime(620, t);
-      osc1.frequency.exponentialRampToValueAtTime(310, t + 0.09);
-
-      gain1.gain.setValueAtTime(0.2, t);
-      gain1.gain.exponentialRampToValueAtTime(0.001, t + 0.09);
-
-      osc1.connect(gain1);
-      gain1.connect(this.masterGain);
-
-      // Higher chime
-      const osc2 = this.ctx.createOscillator();
-      const gain2 = this.ctx.createGain();
-      osc2.type = 'sine';
-      osc2.frequency.setValueAtTime(1240, t);
-      gain2.gain.setValueAtTime(0.12, t);
-      gain2.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
-
-      osc2.connect(gain2);
-      gain2.connect(this.masterGain);
-
-      osc1.start(t);
-      osc2.start(t);
-      osc1.stop(t + 0.095);
-      osc2.stop(t + 0.095);
-    } catch (e) {}
+  // 4. Far Distant Rolling Thunder
+  scheduleFarThunder() {
+    const delay = 25000 + Math.random() * 25000; // Every 25 - 50 seconds
+    this.thunderTimer = setTimeout(() => {
+      this.playFarThunder();
+      this.scheduleFarThunder();
+    }, delay);
   }
 
-  /**
-   * System Initialize / Start Fanfare
-   */
-  playStart() {
-    if (this.isMuted || !this.ctx) return;
-    this.ensureContext();
-
-    try {
-      const t = this.ctx.currentTime;
-      const notes = [440, 554.37, 659.25, 880, 1108.73]; // Pentatonic arpeggio
-
-      notes.forEach((freq, idx) => {
-        const startTime = t + idx * 0.07;
-        const osc = this.ctx.createOscillator();
-        const gain = this.ctx.createGain();
-
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(freq, startTime);
-
-        gain.gain.setValueAtTime(0.18, startTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.35);
-
-        osc.connect(gain);
-        gain.connect(this.masterGain);
-
-        osc.start(startTime);
-        osc.stop(startTime + 0.36);
-      });
-    } catch (e) {}
-  }
-
-  /**
-   * Cybernetic UI Whoosh for modal open/close
-   */
-  playWhoosh() {
-    if (this.isMuted || !this.ctx) return;
-    this.ensureContext();
+  playFarThunder() {
+    if (!this.ctx || this.ctx.state !== 'running') return;
 
     try {
       const t = this.ctx.currentTime;
@@ -225,39 +165,84 @@ export class AudioManager {
       const gain = this.ctx.createGain();
       const filter = this.ctx.createBiquadFilter();
 
-      filter.type = 'bandpass';
-      filter.frequency.setValueAtTime(300, t);
-      filter.frequency.exponentialRampToValueAtTime(1600, t + 0.12);
-      filter.Q.setValueAtTime(2.0, t);
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(65, t);
+      filter.frequency.exponentialRampToValueAtTime(35, t + 4.5);
 
       osc.type = 'sawtooth';
-      osc.frequency.setValueAtTime(120, t);
+      osc.frequency.setValueAtTime(42, t);
+      osc.frequency.exponentialRampToValueAtTime(24, t + 4.5);
 
-      gain.gain.setValueAtTime(0.1, t);
-      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.14);
+      gain.gain.setValueAtTime(0.001, t);
+      gain.gain.linearRampToValueAtTime(0.28, t + 0.8);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 4.8);
 
       osc.connect(filter);
       filter.connect(gain);
       gain.connect(this.masterGain);
 
       osc.start(t);
-      osc.stop(t + 0.15);
+      osc.stop(t + 4.9);
     } catch (e) {}
   }
 
-  /**
-   * Toggles mute state
-   * @returns {boolean} New mute state
-   */
-  toggleMute() {
+  // 5. Planting Crystal Chime & Swelling Pad
+  playPlantingChime() {
+    if (!this.ctx) return;
     this.ensureContext();
-    this.isMuted = !this.isMuted;
-    localStorage.setItem('vz_audio_muted', this.isMuted.toString());
 
-    if (this.masterGain && this.ctx) {
-      this.masterGain.gain.setValueAtTime(this.isMuted ? 0 : 0.65, this.ctx.currentTime);
-    }
+    const t = this.ctx.currentTime;
 
-    return this.isMuted;
+    // Ascending crystal chime arpeggio
+    const freqs = [880, 1108.73, 1318.51, 1760.00, 2217.46];
+    freqs.forEach((f, idx) => {
+      const noteTime = t + idx * 0.08;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(f, noteTime);
+
+      gain.gain.setValueAtTime(0.25, noteTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, noteTime + 1.2);
+
+      osc.connect(gain);
+      gain.connect(this.masterGain);
+
+      osc.start(noteTime);
+      osc.stop(noteTime + 1.25);
+    });
+
+    // Warm swelling life pad as the vine grows
+    const padNotes = [220, 277.18, 329.63, 440];
+    padNotes.forEach(freq => {
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      const filter = this.ctx.createBiquadFilter();
+
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(280, t);
+      filter.frequency.exponentialRampToValueAtTime(1400, t + 2.5); // Filter swell
+      filter.frequency.exponentialRampToValueAtTime(400, t + 5.0);
+
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(freq, t);
+
+      gain.gain.setValueAtTime(0.001, t);
+      gain.gain.linearRampToValueAtTime(0.14, t + 1.8);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 5.5);
+
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.masterGain);
+
+      osc.start(t);
+      osc.stop(t + 5.6);
+    });
+  }
+
+  destroy() {
+    if (this.thunderTimer) clearTimeout(this.thunderTimer);
+    if (this.ctx) this.ctx.close();
   }
 }

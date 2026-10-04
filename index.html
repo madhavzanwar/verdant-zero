@@ -3,218 +3,70 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>VERDANT ZERO // 2150 Metacity</title>
-  <link rel="icon" type="image/svg+xml" href="./public/favicon.svg">
-  <meta name="description" content="Verdant Zero: A cinematic 3D cyberpunk browser game made with Three.js. Reclaim a dead neon metacity with the last seed.">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Orbitron:wght@600;700;800;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <title>Verdant Zero</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="stylesheet" href="./src/styles/main.css">
-  <script type="importmap">
-  {
-    "imports": {
-      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
-    }
-  }
-  </script>
 </head>
-<body class="theme-void">
+<body>
   <!-- 3D WebGL Canvas Layer -->
-  <canvas id="webgl-canvas" class="webgl-canvas" aria-label="3D Cyberpunk Metacity Scene"></canvas>
+  <canvas id="webgl-canvas" aria-label="3D City Scene"></canvas>
 
-  <!-- Atmospheric Scanline & Vignette Overlays -->
-  <div class="screen-scanlines" aria-hidden="true"></div>
-  <div class="screen-vignette" aria-hidden="true"></div>
-  <div class="ambient-glow" aria-hidden="true"></div>
-
-  <!-- HUD Interface Layer -->
-  <main id="app-ui" class="app-ui">
-    <!-- Top System Telemetry Bar -->
-    <header class="telemetry-bar">
-      <div class="telemetry-item telemetry-status">
-        <span class="pulse-dot green" aria-hidden="true"></span>
-        <span class="mono-label">METACITY SECTOR // 00-VOID</span>
-      </div>
-      <div class="telemetry-item telemetry-center">
-        <span class="mono-label">YEAR 2150 // GENESIS PROTOCOL ACTIVE</span>
-      </div>
-      <div class="telemetry-item telemetry-right">
-        <button id="btn-audio-toggle" class="telemetry-btn" aria-label="Toggle Sound System" title="Toggle Sound System">
-          <svg class="icon-svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
-            <path id="audio-wave-1" d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
-            <path id="audio-wave-2" d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
-          </svg>
-          <span id="audio-status-label" class="mono-label">AUDIO: ON</span>
-        </button>
-        <div class="fps-badge">
-          <span class="mono-label">FPS</span>
-          <span id="fps-counter" class="mono-val">60</span>
+  <!-- Quiet Minimal UI Layer -->
+  <main id="app-ui">
+    
+    <!-- Title Screen -->
+    <section id="title-screen" class="title-screen" aria-label="Verdant Zero Title Screen">
+      <div class="title-container">
+        <h1 class="logo">VERDANT <span class="letter-z">Z</span>ERO</h1>
+        <p class="tagline">The city forgot how to grow.</p>
+        <div class="title-buttons">
+          <button id="btn-play" class="btn-quiet" type="button">Play</button>
+          <button id="btn-how" class="btn-quiet" type="button">How to play</button>
         </div>
-      </div>
-    </header>
-
-    <!-- Title Screen Container -->
-    <section id="title-screen" class="title-screen active" aria-labelledby="game-title">
-      <div class="title-content-wrapper">
-        
-        <!-- Tagline / Badge -->
-        <div class="classification-pill">
-          <span class="pill-dot" aria-hidden="true"></span>
-          <span class="pill-text">PROJECT VERDANT // UNIT-7 RECOVERY OPERATIVE</span>
-        </div>
-
-        <!-- Main Title Header -->
-        <div class="title-block">
-          <h1 id="game-title" class="game-title">
-            <span class="title-verdant">VERDANT</span>
-            <span class="title-zero">ZERO</span>
-          </h1>
-          <p class="title-subtitle">THE DEAD METACITY REQUIRES BIOLUMINESCENT RECLAMATION</p>
-        </div>
-
-        <!-- Glassmorphism Narrative Card -->
-        <article class="narrative-card glass-panel">
-          <div class="card-header">
-            <div class="card-icon-box">
-              <svg class="icon-svg seed-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M12 2a10 10 0 0 1 10 10c0 5.52-4.48 10-10 10S2 17.52 2 12A10 10 0 0 1 12 2z"></path>
-                <path d="M12 6c-3.31 0-6 2.69-6 6 0 4 6 9 6 9s6-5 6-9c0-3.31-2.69-6-6-6z"></path>
-              </svg>
-            </div>
-            <div>
-              <h2 class="card-title">MISSION DIRECTIVE</h2>
-              <span class="card-meta">CHRONO-CYCLE: 2150.10.04 // CLASSIFIED</span>
-            </div>
-          </div>
-          <p class="narrative-body">
-            Humanity fled into the exosphere leaving behind an endless megacity choked in carbon and neon darkness. You are <strong class="highlight-cyan">UNIT-7</strong>, a compact autonomous maintenance bot holding the ecosystem’s <strong class="highlight-green">very last living seed</strong>.
-          </p>
-          <p class="narrative-body">
-            Plant seeds into concrete crevices. Channel photon energy to guide glowing vines skyward. Turn cold obsidian skyscrapers into a breathing bioluminescent canopy.
-          </p>
-          <div class="card-stats-row">
-            <div class="stat-item">
-              <span class="stat-label">RECORD HIGH SCORE</span>
-              <span id="title-high-score" class="stat-value highlight-cyan">000,000</span>
-            </div>
-            <div class="stat-item">
-              <span class="stat-label">MAX COMBO HARVEST</span>
-              <span id="title-high-combo" class="stat-value highlight-green">0x</span>
-            </div>
-            <div class="stat-item">
-              <span class="stat-label">CANOPY PURITY</span>
-              <span class="stat-value">0.0%</span>
-            </div>
-          </div>
-        </article>
-
-        <!-- CTA Buttons Navigation -->
-        <nav class="action-nav" aria-label="Game Start Navigation">
-          <button id="btn-start-game" class="btn btn-primary" type="button">
-            <span class="btn-glow" aria-hidden="true"></span>
-            <span class="btn-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-                <polygon points="5 3 19 12 5 21 5 3"></polygon>
-              </svg>
-            </span>
-            <span class="btn-text">INITIALIZE MISSION</span>
-          </button>
-
-          <button id="btn-open-lore" class="btn btn-secondary" type="button">
-            <span class="btn-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="10"></circle>
-                <line x1="12" y1="16" x2="12" y2="12"></line>
-                <line x1="12" y1="8" x2="12.01" y2="8"></line>
-              </svg>
-            </span>
-            <span class="btn-text">SYSTEM ARCHIVES</span>
-          </button>
-        </nav>
-
-        <!-- Underline Hint -->
-        <p class="ready-hint mono-label">
-          <span class="blink-symbol">&gt;&gt;</span> AWAITING OPERATIVE INPUT // ENGINE CALIBRATED TO 60 FPS
-        </p>
-
       </div>
     </section>
 
-    <!-- Lore / System Archives Modal -->
-    <div id="lore-modal" class="modal-backdrop" aria-hidden="true" role="dialog" aria-labelledby="modal-lore-title">
-      <div class="modal-card glass-panel">
-        <header class="modal-header">
-          <div class="modal-title-group">
-            <span class="pill-dot green" aria-hidden="true"></span>
-            <h2 id="modal-lore-title" class="modal-title">ARCHIVE // UNIT-7 PROTOCOL</h2>
+    <!-- How To Play Dialog Overlay -->
+    <div id="dialog-how" class="dialog-overlay" aria-hidden="true" role="dialog" aria-labelledby="how-title">
+      <div class="dialog-box">
+        <h2 id="how-title" class="dialog-title">How to Play</h2>
+        <div class="dialog-content">
+          <p>
+            You are a small robotic gardener carrying the last living seed through a silent, dead megacity.
+          </p>
+          <div class="controls-list">
+            <span class="key-badge">W A S D</span>
+            <span>Move across streets and rooftops</span>
+            <span class="key-badge">Space</span>
+            <span>Hover upward</span>
+            <span class="key-badge">Shift</span>
+            <span>Dash burst</span>
+            <span class="key-badge">E</span>
+            <span>Plant seed at glowing sites</span>
           </div>
-          <button id="btn-close-lore" class="modal-close-btn" aria-label="Close Archives">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <line x1="18" y1="6" x2="6" y2="18"></line>
-              <line x1="6" y1="6" x2="18" y2="18"></line>
-            </svg>
-          </button>
-        </header>
-        <div class="modal-content">
-          <section class="modal-section">
-            <h3 class="section-title">THE SEED ENGINE</h3>
-            <p>
-              In the dead heart of Metacity Zero, solar radiation is trapped by towering carbon spire architecture. As UNIT-7, your micro-chassis is equipped with a pressurized bio-dispenser capable of rooting synthetic vines into conductive skyscraper sidings.
-            </p>
-          </section>
-          <section class="modal-section">
-            <h3 class="section-title">UPCOMING FLIGHT & COMBO MECHANICS</h3>
-            <div class="specs-grid">
-              <div class="spec-card">
-                <span class="spec-key">PROPULSION</span>
-                <span class="spec-val">Ion Hover Thrusters</span>
-              </div>
-              <div class="spec-card">
-                <span class="spec-key">SEED RESERVES</span>
-                <span class="spec-val">Self-Recharging Synthesis</span>
-              </div>
-              <div class="spec-card">
-                <span class="spec-key">GROWTH LINK</span>
-                <span class="spec-val">Chain Combo Multipliers</span>
-              </div>
-              <div class="spec-card">
-                <span class="spec-key">OBJECTIVE</span>
-                <span class="spec-val">Turn 100% of Metropolis Green</span>
-              </div>
-            </div>
-          </section>
-          <section class="modal-section">
-            <h3 class="section-title">DEVELOPMENT PHASE STATUS</h3>
-            <p class="phase-notice">
-              [STAGE 1 COMPLETE]: 3D Engine, Title Glassmorphism, Volumetric Fog, Audio Synthesis, and Code Architecture are online. Gameplay mechanics will be connected in Stage 2.
-            </p>
-          </section>
+          <p>
+            Locate fertile cracks and planters on streets and rooftops. Plant seeds to watch glowing vines climb the concrete and awaken the city.
+          </p>
         </div>
-        <footer class="modal-footer">
-          <button id="btn-modal-dismiss" class="btn btn-secondary modal-action-btn" type="button">RETURN TO TITLE</button>
-        </footer>
+        <button id="btn-close-how" class="btn-quiet dialog-close-btn" type="button">Close</button>
       </div>
     </div>
 
-    <!-- Notification Toast -->
-    <div id="system-toast" class="system-toast glass-panel" aria-live="polite">
-      <span class="toast-indicator" aria-hidden="true"></span>
-      <span id="toast-message" class="toast-message">SYSTEM ONLINE</span>
+    <!-- Quiet Reclaimed Corner Counter -->
+    <div id="reclaimed-counter" class="reclaimed-counter" aria-live="polite">
+      <span id="reclaimed-val" class="reclaimed-val">0.0%</span> reclaimed
     </div>
 
-    <!-- Bottom Credits / Status Bar -->
-    <footer class="bottom-bar">
-      <span class="mono-label">VERDANT ZERO v0.1.0-ALPHA</span>
-      <span class="mono-label sep">•</span>
-      <span class="mono-label">POWERED BY THREE.JS & VITE</span>
-      <span class="mono-label sep">•</span>
-      <span class="mono-label">ZERO BACKEND // 100% CLIENT-SIDE</span>
-    </footer>
+    <!-- Planting Interaction Prompt -->
+    <div id="plant-prompt" class="plant-prompt">
+      Press <span class="key-badge">E</span> to plant
+    </div>
+
+    <!-- Debug FPS Counter (Toggled with F3) -->
+    <div id="debug-fps" class="debug-fps">FPS: <span id="fps-val">60</span></div>
+
   </main>
 
-  <!-- Module Entry Point -->
   <script type="module" src="./src/main.js"></script>
 </body>
 </html>
