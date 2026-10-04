@@ -188,14 +188,14 @@ export class RobotGardener {
   /**
    * Update Robot Physics, Animation & Collision
    */
-  update(delta, time, input, cameraAngle) {
-    // 1. Process Input
+  update(delta, time, input, cameraAngle, cameraPitch) {
+    // 1. Process Input (WASD and Arrow keys supported simultaneously)
     const moveVector = new THREE.Vector3();
 
-    if (input.isKeyPressed('KeyW')) moveVector.z -= 1;
-    if (input.isKeyPressed('KeyS')) moveVector.z += 1;
-    if (input.isKeyPressed('KeyA')) moveVector.x -= 1;
-    if (input.isKeyPressed('KeyD')) moveVector.x += 1;
+    if (input.isKeyPressed('KeyW') || input.isKeyPressed('ArrowUp')) moveVector.z -= 1;
+    if (input.isKeyPressed('KeyS') || input.isKeyPressed('ArrowDown')) moveVector.z += 1;
+    if (input.isKeyPressed('KeyA') || input.isKeyPressed('ArrowLeft')) moveVector.x -= 1;
+    if (input.isKeyPressed('KeyD') || input.isKeyPressed('ArrowRight')) moveVector.x += 1;
 
     this.isDashing = input.isKeyPressed('ShiftLeft') || input.isKeyPressed('ShiftRight');
     const isHovering = input.isKeyPressed('Space');
@@ -252,8 +252,8 @@ export class RobotGardener {
     this.lanternPivot.rotation.z = -this.tilt.z * 1.5 + Math.sin(time * 2.5) * 0.08;
     this.lanternPivot.rotation.x = -this.tilt.x * 1.5;
 
-    // 4. Expressive Eye Behavior (Blinking & Widening)
-    this.updateEye(delta, time);
+    // 4. Expressive Eye Behavior (Blinking, Widening & Camera Gaze Tracking)
+    this.updateEye(delta, time, cameraAngle, cameraPitch);
 
     // 5. Thruster Exhaust Particles
     this.updateThrusterParticles(delta, isHovering);
@@ -309,7 +309,7 @@ export class RobotGardener {
     this.bodyMesh.scale.set(this.squash.xz, this.squash.y, this.squash.xz);
   }
 
-  updateEye(delta, time) {
+  updateEye(delta, time, cameraAngle, cameraPitch) {
     // Eye widening when near a planting spot
     const targetScale = this.isNearPlantSpot ? 1.35 : 1.0;
     const currentScale = this.eyeMesh.scale.x;
@@ -322,6 +322,23 @@ export class RobotGardener {
       this.irisMat.color.setHex(0x33ffaa);
     } else {
       this.irisMat.color.setHex(0x00ff88);
+    }
+
+    // Camera Gaze Tracking: eye looks toward direction camera is facing
+    if (cameraAngle !== undefined) {
+      let diff = cameraAngle - this.mesh.rotation.y;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+
+      // Smooth horizontal gaze offset
+      const lookOffsetX = Math.max(-0.12, Math.min(0.12, Math.sin(diff) * 0.12));
+      // Smooth vertical gaze offset based on camera pitch
+      const lookOffsetY = Math.max(-0.08, Math.min(0.08, Math.sin(cameraPitch || 0) * 0.08));
+
+      this.eyeMesh.position.x = lookOffsetX;
+      this.eyeMesh.position.y = 0.35 + lookOffsetY;
+      this.pupilMesh.position.x = lookOffsetX * 1.25;
+      this.pupilMesh.position.y = 0.35 + lookOffsetY * 1.25;
     }
 
     // Blink timer (blinks every 3.5 - 6 seconds)

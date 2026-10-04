@@ -170,12 +170,13 @@ html, body {
   opacity: 0;
   visibility: hidden;
   transition: opacity 0.3s ease, visibility 0.3s;
-  pointer-events: auto;
+  pointer-events: none;
 }
 
 .dialog-overlay.open {
   opacity: 1;
   visibility: visible;
+  pointer-events: auto;
 }
 
 .dialog-box {
@@ -238,6 +239,64 @@ html, body {
 .dialog-close-btn {
   align-self: flex-start;
   margin-top: 0.5rem;
+}
+
+.dialog-button-row {
+  display: flex;
+  justify-content: flex-end;
+  gap: 1rem;
+  margin-top: 0.5rem;
+}
+
+.setting-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.setting-label {
+  font-size: 0.85rem;
+  letter-spacing: 0.06em;
+  color: var(--color-subtle);
+  text-transform: uppercase;
+}
+
+.setting-control-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.setting-slider {
+  flex: 1;
+  accent-color: var(--color-green-glow);
+  cursor: pointer;
+  height: 4px;
+}
+
+.setting-val-display {
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-green-glow);
+  min-width: 40px;
+  text-align: right;
+}
+
+.setting-checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  cursor: pointer;
+  color: var(--color-offwhite);
+  font-size: 0.9rem;
+}
+
+.setting-checkbox {
+  accent-color: var(--color-green-glow);
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
 }
 
 /* ==========================================================================

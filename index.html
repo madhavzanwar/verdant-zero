@@ -35,20 +35,49 @@
             You are a small robotic gardener carrying the last living seed through a silent, dead megacity.
           </p>
           <div class="controls-list">
-            <span class="key-badge">W A S D</span>
-            <span>Move across streets and rooftops</span>
+            <span class="key-badge">WASD / Arrows</span>
+            <span>Move relative to camera</span>
+            <span class="key-badge">Mouse</span>
+            <span>Look around 360° / tilt</span>
             <span class="key-badge">Space</span>
             <span>Hover upward</span>
             <span class="key-badge">Shift</span>
             <span>Dash burst</span>
             <span class="key-badge">E</span>
             <span>Plant seed at glowing sites</span>
+            <span class="key-badge">Esc</span>
+            <span>Pause menu & settings</span>
           </div>
           <p>
             Locate fertile cracks and planters on streets and rooftops. Plant seeds to watch glowing vines climb the concrete and awaken the city.
           </p>
         </div>
         <button id="btn-close-how" class="btn-quiet dialog-close-btn" type="button">Close</button>
+      </div>
+    </div>
+
+    <!-- Pause & Settings Dialog Overlay -->
+    <div id="dialog-pause" class="dialog-overlay" aria-hidden="true" role="dialog" aria-labelledby="pause-title">
+      <div class="dialog-box">
+        <h2 id="pause-title" class="dialog-title">Paused</h2>
+        <div class="dialog-content">
+          <div class="setting-item">
+            <label for="setting-sensitivity" class="setting-label">Mouse Sensitivity</label>
+            <div class="setting-control-row">
+              <input type="range" id="setting-sensitivity" min="0.2" max="3.0" step="0.1" value="1.0" class="setting-slider">
+              <span id="sensitivity-value" class="setting-val-display">1.0x</span>
+            </div>
+          </div>
+          <div class="setting-item">
+            <label class="setting-checkbox-label">
+              <input type="checkbox" id="setting-invert-y" class="setting-checkbox">
+              <span>Invert Vertical Look (Y-Axis)</span>
+            </label>
+          </div>
+        </div>
+        <div class="dialog-button-row">
+          <button id="btn-resume" class="btn-quiet" type="button">Resume</button>
+        </div>
       </div>
     </div>
 

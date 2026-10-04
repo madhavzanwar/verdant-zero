@@ -12,12 +12,15 @@ import { PlantSystem } from './entities/PlantSystem.js';
 
 /**
  * Verdant Zero Application Bootstrap
- * Orchestrates Procedural City, Weather, Robot Gardener,
- * Planting System, Camera, and Minimal Title Screen.
+ * - 360° Mouse Look with Pointer Lock
+ * - WASD & Arrow Key Navigation
+ * - Pause Menu & Sensitivity / Invert-Y Settings
  */
 class VerdantZeroApp {
   constructor() {
     this.canvas = document.getElementById('webgl-canvas');
+    this.isPaused = false;
+    this.isPointerLocked = false;
 
     // 1. Initialize Scene & Atmospheric Lighting
     this.scene = new THREE.Scene();
@@ -44,27 +47,28 @@ class VerdantZeroApp {
     horizonRimLight.position.set(-80, 50, 60);
     this.scene.add(horizonRimLight);
 
-    // 4. Core Subsystems
-    this.engine = new Engine(this.canvas);
-    this.audio = new AudioManager();
-    this.cameraController = new CameraController(this.camera);
-
-    // 5. Procedural City & Atmospheric Weather
+    // 4. Procedural City & Atmospheric Weather
     this.city = new CityGenerator(this.scene);
     this.weather = new WeatherAndTraffic(this.scene);
+
+    // 5. Core Subsystems
+    this.engine = new Engine(this.canvas);
+    this.audio = new AudioManager();
+    this.cameraController = new CameraController(this.camera, this.city.buildingColliders);
 
     // 6. Robot Gardener (Player) & Planting System
     this.robot = new RobotGardener(this.scene, this.city.buildingColliders);
     this.plantSystem = new PlantSystem(this.scene, this.city, this.audio);
 
-    // 7. Input State
+    // 7. Input & Mouse Look State
     this.keys = new Map();
     this.initInput();
+    this.initMouseLook();
 
     // 8. Post-Processing Pipeline
     this.engine.initPostProcessing(this.scene, this.camera);
 
-    // 9. Minimal Title Screen UI Bindings
+    // 9. Minimal Title Screen & Pause Menu UI Bindings
     this.initUI();
 
     // 10. Start 60 FPS Engine Loop
@@ -73,13 +77,37 @@ class VerdantZeroApp {
 
   initInput() {
     window.addEventListener('keydown', (e) => {
+      // Prevent browser from scrolling the page when arrow keys or space are pressed
+      const scrollKeys = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'];
+      if (scrollKeys.includes(e.code)) {
+        e.preventDefault();
+      }
+
       this.keys.set(e.code, true);
 
       // Plant seed interaction on KeyE
-      if (e.code === 'KeyE') {
+      if (e.code === 'KeyE' && !this.isPaused) {
         const spot = this.plantSystem.checkProximity(this.robot.position);
         if (spot) {
           this.plantSystem.plant(spot);
+        }
+      }
+
+      // Escape key opens/closes pause menu
+      if (e.code === 'Escape') {
+        const dialogHow = document.getElementById('dialog-how');
+        if (dialogHow && dialogHow.classList.contains('open')) {
+          dialogHow.classList.remove('open');
+          dialogHow.setAttribute('aria-hidden', 'true');
+          return;
+        }
+
+        if (this.cameraController.mode === 'GAMEPLAY') {
+          if (!this.isPaused) {
+            this.openPauseMenu();
+          } else {
+            this.closePauseMenu();
+          }
         }
       }
     });
@@ -98,6 +126,43 @@ class VerdantZeroApp {
     window.addEventListener('keydown', startAudio, { once: true });
   }
 
+  initMouseLook() {
+    // 1. Pointer Lock on Click during Gameplay
+    this.canvas.addEventListener('click', () => {
+      if (this.cameraController.mode === 'GAMEPLAY' && !this.isPaused) {
+        if (!document.pointerLockElement) {
+          this.canvas.requestPointerLock?.();
+        }
+      }
+    });
+
+    // 2. Pointer Lock State Tracking
+    let wasPointerLocked = false;
+    document.addEventListener('pointerlockchange', () => {
+      const isLocked = document.pointerLockElement === this.canvas;
+      if (wasPointerLocked && !isLocked && this.cameraController.mode === 'GAMEPLAY' && !this.isPaused) {
+        this.openPauseMenu();
+      }
+      wasPointerLocked = isLocked;
+      this.isPointerLocked = isLocked;
+    });
+
+    // 3. Mouse Movement Handling
+    window.addEventListener('mousemove', (e) => {
+      if (this.isPaused) return;
+
+      if (this.isPointerLocked) {
+        // Direct pointer lock delta
+        this.cameraController.handlePointerMove(e.movementX, e.movementY);
+      } else if (this.cameraController.mode === 'GAMEPLAY') {
+        // Fallback when pointer lock is not active
+        const normX = (e.clientX / window.innerWidth - 0.5) * 2;
+        const normY = (e.clientY / window.innerHeight - 0.5) * 2;
+        this.cameraController.handleScreenMouseFallback(normX, normY);
+      }
+    });
+  }
+
   isKeyPressed(code) {
     return !!this.keys.get(code);
   }
@@ -108,6 +173,39 @@ class VerdantZeroApp {
     const btnHow = document.getElementById('btn-how');
     const dialogHow = document.getElementById('dialog-how');
     const btnCloseHow = document.getElementById('btn-close-how');
+
+    // Pause & Settings UI elements
+    const btnResume = document.getElementById('btn-resume');
+    const sliderSens = document.getElementById('setting-sensitivity');
+    const sensValDisplay = document.getElementById('sensitivity-value');
+    const checkInvertY = document.getElementById('setting-invert-y');
+
+    // Initialize Settings from CameraController
+    if (sliderSens && sensValDisplay) {
+      sliderSens.value = this.cameraController.sensitivity.toString();
+      sensValDisplay.textContent = `${this.cameraController.sensitivity.toFixed(1)}x`;
+
+      sliderSens.addEventListener('input', (e) => {
+        const val = parseFloat(e.target.value);
+        this.cameraController.setSensitivity(val);
+        sensValDisplay.textContent = `${val.toFixed(1)}x`;
+      });
+    }
+
+    if (checkInvertY) {
+      checkInvertY.checked = this.cameraController.invertY;
+      checkInvertY.addEventListener('change', (e) => {
+        this.cameraController.setInvertY(e.target.checked);
+      });
+    }
+
+    // Resume Button
+    if (btnResume) {
+      btnResume.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.closePauseMenu();
+      });
+    }
 
     // "Play" Button Click
     if (btnPlay) {
@@ -121,6 +219,11 @@ class VerdantZeroApp {
 
         // Transition camera from Title orbit to Robot third-person follow
         this.cameraController.startGameplayTransition(this.robot.position);
+
+        // Lock pointer automatically for gameplay
+        setTimeout(() => {
+          this.canvas.requestPointerLock?.();
+        }, 1100);
       });
     }
 
@@ -140,7 +243,6 @@ class VerdantZeroApp {
       });
     }
 
-    // Backdrop click or Escape key to close dialog
     if (dialogHow) {
       dialogHow.addEventListener('click', (e) => {
         if (e.target === dialogHow) {
@@ -149,34 +251,54 @@ class VerdantZeroApp {
         }
       });
     }
+  }
 
-    window.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && dialogHow && dialogHow.classList.contains('open')) {
-        dialogHow.classList.remove('open');
-        dialogHow.setAttribute('aria-hidden', 'true');
+  openPauseMenu() {
+    this.isPaused = true;
+    const dialogPause = document.getElementById('dialog-pause');
+    if (dialogPause) {
+      dialogPause.classList.add('open');
+      dialogPause.setAttribute('aria-hidden', 'false');
+    }
+  }
+
+  closePauseMenu() {
+    this.isPaused = false;
+    const dialogPause = document.getElementById('dialog-pause');
+    if (dialogPause) {
+      dialogPause.classList.remove('open');
+      dialogPause.setAttribute('aria-hidden', 'true');
+    }
+    // Re-lock pointer
+    if (this.cameraController.mode === 'GAMEPLAY') {
+      try {
+        this.canvas.requestPointerLock?.();
+      } catch (e) {
+        // Pointer lock fallback is handled gracefully
       }
-    });
+    }
   }
 
   update(delta, time) {
+    if (this.isPaused) return;
+
     // 1. Update City & Atmospheric Details
     this.city.update(delta, time);
     this.weather.update(delta, time);
 
-    // 2. Calculate Camera Horizontal Heading for Player-Relative Movement
-    const forward = new THREE.Vector3();
-    this.camera.getWorldDirection(forward);
-    const cameraAngle = Math.atan2(forward.x, forward.z);
+    // 2. Camera Horizontal and Pitch Angles for Player Movement and Eye Gaze
+    const cameraAngle = this.cameraController.getHorizontalAngle();
+    const cameraPitch = this.cameraController.getPitchAngle();
 
-    // 3. Update Robot Gardener Physics & Eye
-    this.robot.update(delta, time, this, cameraAngle);
+    // 3. Update Robot Gardener Physics, WASD/Arrow Movement & Eye
+    this.robot.update(delta, time, this, cameraAngle, cameraPitch);
 
     // 4. Update Plant Proximity & Growth Animations
     const nearSpot = this.plantSystem.checkProximity(this.robot.position);
     this.robot.isNearPlantSpot = !!nearSpot;
     this.plantSystem.update(delta, time);
 
-    // 5. Update Camera Controller
+    // 5. Update Camera Controller with Mouse Look
     this.cameraController.update(delta, time, this.robot);
   }
 }
