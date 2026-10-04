@@ -11,9 +11,10 @@ import * as THREE from 'three';
  */
 
 export class DroneSystem {
-  constructor(scene, audioManager) {
+  constructor(scene, audioManager, colliders = []) {
     this.scene = scene;
     this.audio = audioManager;
+    this.colliders = colliders;
 
     this.drones = [];
     this.waveTimer = 0;
@@ -84,11 +85,6 @@ export class DroneSystem {
     const eye = new THREE.Mesh(eyeGeo, eyeMat);
     eye.position.y = -0.12;
     group.add(eye);
-
-    // Red eye point light
-    const eyeLight = new THREE.PointLight(0xff0022, 1.2, 8, 1.6);
-    eyeLight.position.y = -0.2;
-    group.add(eyeLight);
 
     // 3. Thruster Lights (3 corners)
     const thrusterMat = new THREE.MeshBasicMaterial({ color: 0xff6600 });
@@ -301,6 +297,19 @@ export class DroneSystem {
           d.playerDetectedTime = Math.max(0, d.playerDetectedTime - delta * 0.5);
         }
       }
+
+      // 3. Skyscraper Obstacle Avoidance (Lift drone above building if colliding)
+      if (this.colliders && this.colliders.length > 0) {
+        for (let c of this.colliders) {
+          if (d.position.x > c.minX - 1.2 && d.position.x < c.maxX + 1.2 &&
+              d.position.z > c.minZ - 1.2 && d.position.z < c.maxZ + 1.2) {
+            if (d.position.y < c.height + 2.5) {
+              d.position.y = c.height + 2.5;
+              d.group.position.y = d.position.y;
+            }
+          }
+        }
+      }
     });
 
     // 3. Update Sparks Animation
@@ -399,9 +408,25 @@ export class DroneSystem {
 
   reset() {
     this.drones.forEach(d => {
-      if (d.mesh) this.scene.remove(d.mesh);
-      if (d.laserBeam) this.scene.remove(d.laserBeam);
-      if (d.scanCone) this.scene.remove(d.scanCone);
+      if (d.group) {
+        this.scene.remove(d.group);
+        d.group.traverse(child => {
+          if (child.isMesh) {
+            child.geometry?.dispose();
+            child.material?.dispose();
+          }
+        });
+      }
+      if (d.beam) {
+        this.scene.remove(d.beam);
+        d.beam.geometry?.dispose();
+        d.beam.material?.dispose();
+      }
+      if (d.scanCone) {
+        this.scene.remove(d.scanCone);
+        d.scanCone.geometry?.dispose();
+        d.scanCone.material?.dispose();
+      }
     });
     this.drones = [];
     this.waveTimer = 0;

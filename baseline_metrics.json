@@ -1,0 +1,51 @@
+{
+  "drawCalls": 177,
+  "triangles": 53695,
+  "geometries": 78,
+  "textures": 18,
+  "realLightsCount": 3,
+  "lightDetails": [
+    {
+      "type": "HemisphereLight",
+      "color": "3e2570",
+      "intensity": 2.4
+    },
+    {
+      "type": "DirectionalLight",
+      "color": "7590d4",
+      "intensity": 1.8
+    },
+    {
+      "type": "PointLight",
+      "color": "33ff88",
+      "intensity": 1.8
+    }
+  ],
+  "particles": {
+    "rainStreaks": 2000,
+    "ripples": 80,
+    "trafficPoints": 0,
+    "smogSprites": 70,
+    "droneSparks": 60,
+    "fireflies": 120,
+    "totalActive": 2330
+  },
+  "frameTime": {
+    "avgMs": 69.75,
+    "minMs": 0.3,
+    "maxMs": 139.2,
+    "estimatedFps": 14.3
+  },
+  "memory": {
+    "usedJSHeapMB": 16.47,
+    "totalJSHeapMB": 24.29,
+    "jsHeapLimitMB": 4192
+  },
+  "buildSize": {
+    "js": 705.66,
+    "css": 28.84,
+    "html": 15.41,
+    "total": 749.91,
+    "assetsTotalKB": 3501.22
+  }
+}

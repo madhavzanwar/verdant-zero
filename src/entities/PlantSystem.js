@@ -233,14 +233,44 @@ export class PlantSystem {
   }
 
   spawnClimbingVine(pos, spotMesh = null, isInsideSmog = false) {
-    // Generate curved path climbing up the building facade at x = -10
+    // Determine closest building collider to anchor climbing vine along its real face
+    let bestDist = Infinity;
+    let normalX = 0;
+    let normalZ = 0;
+    let anchorX = pos.x;
+    let anchorZ = pos.z;
+
+    if (this.city && this.city.buildingColliders) {
+      for (let c of this.city.buildingColliders) {
+        const cx = Math.max(c.minX, Math.min(pos.x, c.maxX));
+        const cz = Math.max(c.minZ, Math.min(pos.z, c.maxZ));
+        const distSq = (pos.x - cx) ** 2 + (pos.z - cz) ** 2;
+        if (distSq < bestDist && distSq < 140) {
+          bestDist = distSq;
+          const dMinX = Math.abs(pos.x - c.minX);
+          const dMaxX = Math.abs(pos.x - c.maxX);
+          const dMinZ = Math.abs(pos.z - c.minZ);
+          const dMaxZ = Math.abs(pos.z - c.maxZ);
+          const minF = Math.min(dMinX, dMaxX, dMinZ, dMaxZ);
+          if (minF === dMinX) { normalX = -1; normalZ = 0; anchorX = c.minX - 0.2; }
+          else if (minF === dMaxX) { normalX = 1; normalZ = 0; anchorX = c.maxX + 0.2; }
+          else if (minF === dMinZ) { normalX = 0; normalZ = -1; anchorZ = c.minZ - 0.2; }
+          else { normalX = 0; normalZ = 1; anchorZ = c.maxZ + 0.2; }
+        }
+      }
+    }
+
+    const tanX = -normalZ;
+    const tanZ = normalX;
+
+    // Generate curved path climbing up the building facade flush with its wall
     const curvePoints = [
       new THREE.Vector3(pos.x, pos.y, pos.z),
-      new THREE.Vector3(pos.x - 0.35, pos.y + 3.5, pos.z + 1.2),
-      new THREE.Vector3(pos.x - 0.45, pos.y + 8.5, pos.z - 0.6),
-      new THREE.Vector3(pos.x - 0.45, pos.y + 14.5, pos.z + 1.4),
-      new THREE.Vector3(pos.x - 0.45, pos.y + 21.0, pos.z - 0.4),
-      new THREE.Vector3(pos.x - 0.45, pos.y + 28.0, pos.z + 0.6)
+      new THREE.Vector3(anchorX + tanX * 0.8, pos.y + 4.5, anchorZ + tanZ * 0.8),
+      new THREE.Vector3(anchorX - tanX * 0.6, pos.y + 10.5, anchorZ - tanZ * 0.6),
+      new THREE.Vector3(anchorX + tanX * 0.9, pos.y + 17.0, anchorZ + tanZ * 0.9),
+      new THREE.Vector3(anchorX - tanX * 0.4, pos.y + 23.5, anchorZ - tanZ * 0.4),
+      new THREE.Vector3(anchorX + tanX * 0.5, pos.y + 30.0, anchorZ + tanZ * 0.5)
     ];
 
     const curve = new THREE.CatmullRomCurve3(curvePoints);
@@ -272,11 +302,11 @@ export class PlantSystem {
     for (let i = 1; i <= 14; i++) {
       const t = i / 15;
       const point = curve.getPoint(t);
-      const tangent = curve.getTangent(t);
 
       const leaf = new THREE.Mesh(leafGeo, leafMat.clone());
       leaf.position.copy(point);
-      leaf.position.x += (Math.random() - 0.5) * 0.4;
+      leaf.position.x += tanX * (Math.random() - 0.5) * 0.4;
+      leaf.position.z += tanZ * (Math.random() - 0.5) * 0.4;
       leaf.scale.set(0.001, 0.001, 0.001); // starts unfurled at 0
       this.scene.add(leaf);
 
@@ -299,12 +329,7 @@ export class PlantSystem {
       flower.scale.set(0.001, 0.001, 0.001);
       this.scene.add(flower);
 
-      // Delicate point light at the bloom
-      const flowerLight = new THREE.PointLight(flowerColors[idx], 0.001, 6, 1.5);
-      flowerLight.position.copy(point);
-      this.scene.add(flowerLight);
-
-      flowers.push({ mesh: flower, light: flowerLight, targetT: t, opened: false });
+      flowers.push({ mesh: flower, targetT: t, opened: false });
     });
 
     this.activeVines.push({
@@ -341,14 +366,27 @@ export class PlantSystem {
       this.activeVines.splice(idx, 1);
     }
 
-    if (vine.mesh) this.scene.remove(vine.mesh);
+    if (vine.mesh) {
+      this.scene.remove(vine.mesh);
+      vine.mesh.geometry?.dispose();
+      vine.mesh.material?.dispose();
+    }
     if (vine.leaves) {
-      vine.leaves.forEach(l => { if (l.mesh) this.scene.remove(l.mesh); });
+      vine.leaves.forEach(l => {
+        if (l.mesh) {
+          this.scene.remove(l.mesh);
+          l.mesh.geometry?.dispose();
+          l.mesh.material?.dispose();
+        }
+      });
     }
     if (vine.flowers) {
       vine.flowers.forEach(f => {
-        if (f.mesh) this.scene.remove(f.mesh);
-        if (f.light) this.scene.remove(f.light);
+        if (f.mesh) {
+          this.scene.remove(f.mesh);
+          f.mesh.geometry?.dispose();
+          f.mesh.material?.dispose();
+        }
       });
     }
 
@@ -449,7 +487,6 @@ export class PlantSystem {
         v.flowers.forEach(fl => {
           if (v.growth >= fl.targetT && !fl.opened) {
             fl.mesh.scale.set(1, 1, 1);
-            fl.light.intensity = 1.8;
             fl.opened = true;
           }
         });
@@ -469,11 +506,11 @@ export class PlantSystem {
         }
       }
 
-      // Flower pulsing emission
+      // Flower pulsing emission & soft breathing
       v.flowers.forEach(fl => {
         if (fl.opened) {
-          const pulse = 1.5 + 0.6 * Math.sin(time * 3.5);
-          fl.light.intensity = pulse;
+          const flowerPulse = 1.0 + 0.18 * Math.sin(time * 3.5);
+          fl.mesh.scale.set(flowerPulse, flowerPulse, flowerPulse);
         }
       });
     }

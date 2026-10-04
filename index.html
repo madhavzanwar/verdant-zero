@@ -6,10 +6,22 @@
   <title>Verdant Zero</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="stylesheet" href="./src/styles/main.css">
+  <link rel="stylesheet" href="./src/styles/map.css">
 </head>
 <body>
   <!-- 3D WebGL Canvas Layer -->
   <canvas id="webgl-canvas" aria-label="3D City Scene"></canvas>
+
+  <!-- Shader Compilation & Scene Pre-warm Overlay -->
+  <div id="shader-loader" class="shader-loader" aria-hidden="true">
+    <div class="loader-content">
+      <div class="loader-spinner"></div>
+      <div class="loader-bar-track">
+        <div id="loader-bar-fill" class="loader-bar-fill"></div>
+      </div>
+      <span class="loader-text">Compiling Shaders & Environment</span>
+    </div>
+  </div>
 
   <!-- Quiet Minimal UI Layer -->
   <main id="app-ui">
@@ -36,15 +48,23 @@
           </p>
           <div class="controls-list">
             <span class="key-badge">WASD / Arrows</span>
-            <span>Move relative to camera</span>
-            <span class="key-badge">Mouse</span>
-            <span>Look around 360° / tilt</span>
-            <span class="key-badge">Space</span>
-            <span>Hover upward</span>
+            <span>Walk relative to camera</span>
             <span class="key-badge">Shift</span>
+            <span>Hold to run</span>
+            <span class="key-badge">F</span>
             <span>Dash burst</span>
+            <span class="key-badge">Space</span>
+            <span>Jump / Hold to hover</span>
             <span class="key-badge">E</span>
-            <span>Plant seed at glowing sites</span>
+            <span>Plant seed at fertile planters</span>
+            <span class="key-badge">Q / R-Click</span>
+            <span>Light pulse (clear smog / stun)</span>
+            <span class="key-badge">M / Alt</span>
+            <span>Sector map / Unlock radar cursor</span>
+            <span class="key-badge">T / G</span>
+            <span>Waypoint: Nearest water / spot</span>
+            <span class="key-badge">F4</span>
+            <span>Audio debug meters</span>
             <span class="key-badge">Esc</span>
             <span>Pause menu & settings</span>
           </div>
@@ -61,6 +81,31 @@
       <div class="dialog-box">
         <h2 id="pause-title" class="dialog-title">Paused</h2>
         <div class="dialog-content">
+          <!-- 1. Master Volume -->
+          <div class="setting-item">
+            <label for="setting-master-vol" class="setting-label">Master Volume</label>
+            <div class="setting-control-row">
+              <input type="range" id="setting-master-vol" min="0" max="1" step="0.05" value="0.35" class="setting-slider">
+              <span id="master-vol-val" class="setting-val-display">35%</span>
+            </div>
+          </div>
+          <!-- 2. Ambient/Rain Volume -->
+          <div class="setting-item">
+            <label for="setting-ambient-vol" class="setting-label">Atmosphere / Rain Volume</label>
+            <div class="setting-control-row">
+              <input type="range" id="setting-ambient-vol" min="0" max="1" step="0.05" value="0.8" class="setting-slider">
+              <span id="ambient-vol-val" class="setting-val-display">80%</span>
+            </div>
+          </div>
+          <!-- 3. SFX Volume -->
+          <div class="setting-item">
+            <label for="setting-sfx-vol" class="setting-label">SFX / Chimes Volume</label>
+            <div class="setting-control-row">
+              <input type="range" id="setting-sfx-vol" min="0" max="1" step="0.05" value="0.8" class="setting-slider">
+              <span id="sfx-vol-val" class="setting-val-display">80%</span>
+            </div>
+          </div>
+          <!-- 4. Mouse Sensitivity -->
           <div class="setting-item">
             <label for="setting-sensitivity" class="setting-label">Mouse Sensitivity</label>
             <div class="setting-control-row">
@@ -68,6 +113,7 @@
               <span id="sensitivity-value" class="setting-val-display">1.0x</span>
             </div>
           </div>
+          <!-- 5. Scene Exposure -->
           <div class="setting-item">
             <label for="setting-brightness" class="setting-label">Scene Brightness</label>
             <div class="setting-control-row">
@@ -75,10 +121,60 @@
               <span id="brightness-value" class="setting-val-display">1.0x</span>
             </div>
           </div>
+          <!-- 6. Field of View -->
+          <div class="setting-item">
+            <label for="setting-fov" class="setting-label">Field of View (FOV)</label>
+            <div class="setting-control-row">
+              <input type="range" id="setting-fov" min="50" max="85" step="1" value="60" class="setting-slider">
+              <span id="fov-val" class="setting-val-display">60°</span>
+            </div>
+          </div>
+          <!-- 7. Graphic Quality Preset -->
+          <div class="setting-item">
+            <label for="setting-quality" class="setting-label">Graphic Quality</label>
+            <div class="setting-control-row">
+              <select id="setting-quality" class="setting-select">
+                <option value="auto">Auto (Hardware Benchmark)</option>
+                <option value="high">High (Full Bloom, Shadows, DPR 1.25)</option>
+                <option value="medium">Medium (Balanced 60 FPS, DPR 1.15)</option>
+                <option value="low">Low (Fastest Performance, DPR 1.0)</option>
+              </select>
+            </div>
+          </div>
+          <!-- 8. Robot Movement Speed Scale -->
+          <div class="setting-item">
+            <label for="setting-move-speed" class="setting-label">Robot Movement Speed</label>
+            <div class="setting-control-row">
+              <input type="range" id="setting-move-speed" min="0.8" max="1.5" step="0.05" value="1.0" class="setting-slider">
+              <span id="move-speed-val" class="setting-val-display">100%</span>
+            </div>
+          </div>
+          <!-- 9. Invert Vertical Look -->
           <div class="setting-item">
             <label class="setting-checkbox-label">
               <input type="checkbox" id="setting-invert-y" class="setting-checkbox">
               <span>Invert Vertical Look (Y-Axis)</span>
+            </label>
+          </div>
+          <!-- 10. Mute Audio -->
+          <div class="setting-item">
+            <label class="setting-checkbox-label">
+              <input type="checkbox" id="setting-mute-audio" class="setting-checkbox">
+              <span>Mute All Audio</span>
+            </label>
+          </div>
+          <!-- 11. Camera Smoothing -->
+          <div class="setting-item">
+            <label class="setting-checkbox-label">
+              <input type="checkbox" id="setting-cam-smoothing" class="setting-checkbox" checked>
+              <span>Cinematic Camera Damping</span>
+            </label>
+          </div>
+          <!-- 12. Show FPS Overlay -->
+          <div class="setting-item">
+            <label class="setting-checkbox-label">
+              <input type="checkbox" id="setting-show-fps" class="setting-checkbox">
+              <span>Always Show FPS Overlay</span>
             </label>
           </div>
         </div>
@@ -103,60 +199,63 @@
     <div id="toast-risk" class="toast-banner toast-risk" aria-live="assertive">RISK &times;2</div>
     <div id="toast-milestone" class="toast-banner toast-milestone" aria-live="polite">+8s TIME BONUS — 10% RECLAIMED</div>
 
-    <!-- Top Center HUD (Score & Combo Multiplier with Draining Ring) -->
-    <div id="hud-top-center" class="hud-top-center">
-      <div class="score-display">
-        <span class="score-label">SCORE</span>
-        <span id="hud-score-val" class="score-value">0</span>
-      </div>
-      <div id="hud-combo-group" class="combo-group" title="Chain plantings within 6 seconds">
-        <svg class="combo-ring-svg" viewBox="0 0 36 36">
-          <circle class="combo-ring-track" cx="18" cy="18" r="14" />
-          <circle id="combo-ring-fill" class="combo-ring-fill" cx="18" cy="18" r="14" />
-        </svg>
-        <span id="combo-badge-text" class="combo-text">1x</span>
-      </div>
-    </div>
-
-    <!-- Top Right HUD (Run Timer & Milestone Indicator) -->
-    <div id="hud-timer-container" class="hud-timer-container">
-      <span class="timer-label">TIME</span>
-      <span id="hud-timer-val" class="timer-val">03:00</span>
-    </div>
-
-    <!-- Bottom Center Pulse Ability Cooldown -->
-    <div id="pulse-container" class="pulse-container">
-      <div id="pulse-ability" class="pulse-ability" title="Light Pulse (Q / Right Mouse)">
-        <svg class="pulse-svg" viewBox="0 0 44 44">
-          <circle class="pulse-track" cx="22" cy="22" r="18" />
-          <circle id="pulse-cooldown-circle" class="pulse-fill" cx="22" cy="22" r="18" />
-        </svg>
-        <span class="pulse-key">Q</span>
-      </div>
-    </div>
-
-    <!-- Bottom Status (Slim Health & Water Bars) -->
-    <div id="survival-hud" class="survival-hud">
-      <div class="hud-status-group">
-        <div class="bar-container">
-          <span class="bar-label">HEALTH</span>
-          <div class="bar-track"><div id="health-bar-fill" class="bar-fill health-fill"></div></div>
+    <!-- In-Game Gameplay HUD Elements (Hidden on Title Screen) -->
+    <div id="gameplay-hud" class="gameplay-hud" aria-hidden="true">
+      <!-- Top Center HUD (Score & Combo Multiplier with Draining Ring) -->
+      <div id="hud-top-center" class="hud-top-center">
+        <div class="score-display">
+          <span class="score-label">SCORE</span>
+          <span id="hud-score-val" class="score-value">0</span>
         </div>
-        <div class="bar-container">
-          <span class="bar-label">WATER</span>
-          <div class="bar-track"><div id="water-bar-fill" class="bar-fill water-fill"></div></div>
+        <div id="hud-combo-group" class="combo-group" title="Chain plantings within 6 seconds">
+          <svg class="combo-ring-svg" viewBox="0 0 36 36">
+            <circle class="combo-ring-track" cx="18" cy="18" r="14" />
+            <circle id="combo-ring-fill" class="combo-ring-fill" cx="18" cy="18" r="14" />
+          </svg>
+          <span id="combo-badge-text" class="combo-text">1x</span>
         </div>
       </div>
-    </div>
 
-    <!-- Bottom Left Quiet Reclaimed Corner Counter -->
-    <div id="reclaimed-counter" class="reclaimed-counter" aria-live="polite">
-      <span id="reclaimed-val" class="reclaimed-val">0.0%</span> reclaimed
-    </div>
+      <!-- Top Right HUD (Run Timer & Milestone Indicator) -->
+      <div id="hud-timer-container" class="hud-timer-container">
+        <span class="timer-label">TIME</span>
+        <span id="hud-timer-val" class="timer-val">03:00</span>
+      </div>
 
-    <!-- Planting Interaction Prompt -->
-    <div id="plant-prompt" class="plant-prompt">
-      Press <span class="key-badge">E</span> to plant
+      <!-- Bottom Center Pulse Ability Cooldown -->
+      <div id="pulse-container" class="pulse-container">
+        <div id="pulse-ability" class="pulse-ability" title="Light Pulse (Q / Right Mouse)">
+          <svg class="pulse-svg" viewBox="0 0 44 44">
+            <circle class="pulse-track" cx="22" cy="22" r="18" />
+            <circle id="pulse-cooldown-circle" class="pulse-fill" cx="22" cy="22" r="18" />
+          </svg>
+          <span class="pulse-key">Q</span>
+        </div>
+      </div>
+
+      <!-- Bottom Status (Slim Health & Water Bars) -->
+      <div id="survival-hud" class="survival-hud">
+        <div class="hud-status-group">
+          <div class="bar-container">
+            <span class="bar-label">HEALTH</span>
+            <div class="bar-track"><div id="health-bar-fill" class="bar-fill health-fill"></div></div>
+          </div>
+          <div class="bar-container">
+            <span class="bar-label">WATER</span>
+            <div class="bar-track"><div id="water-bar-fill" class="bar-fill water-fill"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Top Left Quiet Reclaimed Corner Counter -->
+      <div id="reclaimed-counter" class="reclaimed-counter" aria-live="polite">
+        <span id="reclaimed-val" class="reclaimed-val">0.0%</span> reclaimed
+      </div>
+
+      <!-- Planting Interaction Prompt -->
+      <div id="plant-prompt" class="plant-prompt">
+        Press <span class="key-badge">E</span> to plant
+      </div>
     </div>
 
     <!-- Game Over Screen Modal -->
@@ -194,6 +293,26 @@
           </div>
         </div>
 
+        <!-- Player Profile & Leaderboard Submit Form -->
+        <div class="leaderboard-submit-box">
+          <div class="input-row">
+            <input type="text" id="leaderboard-nickname" placeholder="Pilot Nickname" maxlength="20" class="input-text">
+            <input type="text" id="leaderboard-college" placeholder="College / Affiliation" maxlength="30" class="input-text">
+            <button id="btn-submit-score" class="btn-quiet btn-primary-action" type="button">Submit Score</button>
+          </div>
+          <div id="submit-status-msg" class="submit-status-msg"></div>
+        </div>
+
+        <!-- Leaderboard Tabs & Standings Table -->
+        <div class="leaderboard-view-container">
+          <div class="leaderboard-tabs">
+            <button id="tab-lb-all" class="lb-tab active" type="button">All Time</button>
+            <button id="tab-lb-today" class="lb-tab" type="button">Today</button>
+            <button id="tab-lb-college" class="lb-tab" type="button">My College</button>
+          </div>
+          <div id="leaderboard-table-content" class="leaderboard-table-content"></div>
+        </div>
+
         <!-- Recent Runs History -->
         <div class="gameover-history-section">
           <div class="history-title">RECENT RUNS (LAST 5)</div>
@@ -202,8 +321,28 @@
 
         <div class="gameover-actions">
           <button id="btn-gameover-restart" class="btn-quiet btn-primary-action" type="button">Play again <span class="key-hint">(R)</span></button>
+          <button id="btn-share-challenge" class="btn-quiet btn-share" type="button">Challenge a Friend</button>
           <button id="btn-gameover-menu" class="btn-quiet" type="button">Main menu</button>
           <button id="btn-timelapse-hook" class="btn-quiet btn-subtle-hook" type="button" title="Capture cinematic run summary">Record Time-Lapse</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Pointer Lock Re-engagement Prompt -->
+    <div id="pointerlock-prompt" class="pointerlock-prompt" aria-hidden="true">
+      Click screen to resume mouse look
+    </div>
+
+    <!-- Global Error Boundary Dialog -->
+    <div id="dialog-error" class="dialog-overlay" aria-hidden="true" role="dialog" aria-labelledby="error-title">
+      <div class="dialog-box">
+        <h2 id="error-title" class="dialog-title" style="color: #ff5555;">RECOVERY INTERRUPT</h2>
+        <div class="dialog-content">
+          <p id="error-message">An unexpected runtime exception occurred. The simulation state was preserved safely.</p>
+        </div>
+        <div class="dialog-button-row">
+          <button id="btn-error-restart" class="btn-quiet btn-primary-action" type="button">Restart Simulation</button>
+          <button id="btn-error-reload" class="btn-quiet" type="button">Reload Page</button>
         </div>
       </div>
     </div>

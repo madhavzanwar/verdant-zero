@@ -4,7 +4,8 @@ import * as THREE from 'three';
  * Camera Controller
  * - Title Mode: Cinematic flight through clouds into street canyon with mouse parallax
  * - Gameplay Mode: 360° Mouse look with pointer lock, vertical pitch clamping,
- *   building collision prevention, ground clamp, spring damping, and dash FOV effect
+ *   smooth third-person follow with look-ahead, building collision avoidance, ground clamp,
+ *   gamepad right-stick look, and snappy FOV kick for dash
  * - Configurable Sensitivity and Invert-Y persisted in localStorage
  */
 
@@ -12,9 +13,9 @@ export class CameraController {
   constructor(camera, colliders = []) {
     this.camera = camera;
     this.colliders = colliders;
-    this.mode = 'TITLE'; // 'TITLE' | 'TRANSITIONING' | 'GAMEPLAY'
+    this.mode = 'TITLE'; // 'TITLE' | 'TRANSITIONING' | 'GAMEPLAY' | 'GAMEOVER'
 
-    // Mouse Settings
+    // Mouse & Gamepad Settings
     this.sensitivity = parseFloat(localStorage.getItem('vz_mouse_sensitivity') || '1.0');
     this.invertY = localStorage.getItem('vz_invert_y') === 'true';
 
@@ -37,11 +38,14 @@ export class CameraController {
     // Distance & Spring Damping
     this.baseDistance = 4.8;
     this.currentDistance = 4.8;
+    this.targetDistance = 4.8;
     this.damping = 12.0;
 
-    // Camera FOV
-    this.baseFov = 60;
-    this.dashFov = 68;
+    // Camera FOV & Dash Kick
+    this.baseFov = parseFloat(localStorage.getItem('vz_fov') || '60');
+    this.dashFov = 70;
+    this.fovKick = 0.0;
+    this.wasDashing = false;
 
     // Title Camera Parameters
     this.titleTime = 0;
@@ -52,6 +56,9 @@ export class CameraController {
     this.transitionProgress = 0;
     this.startPos = new THREE.Vector3();
     this.startLook = new THREE.Vector3();
+
+    // Smoothed target look point
+    this.currentLookTarget = new THREE.Vector3();
   }
 
   setColliders(colliders) {
@@ -103,9 +110,7 @@ export class CameraController {
     if (this.mode !== 'GAMEPLAY') return;
 
     // Gentle look offset based on screen position
-    const targetOffsetYaw = -normX * 0.8;
     const targetOffsetPitch = (this.invertY ? normY : -normY) * 0.5;
-
     this.targetPitch = Math.max(this.minPitch, Math.min(this.maxPitch, targetOffsetPitch + 0.2));
   }
 
@@ -121,6 +126,8 @@ export class CameraController {
     this.targetPitch = 0.22;
     this.pitch = 0.22;
     this.currentDistance = this.baseDistance;
+    this.targetDistance = this.baseDistance;
+    this.fovKick = 0.0;
   }
 
   setGameOverMode(robotPos) {
@@ -133,7 +140,7 @@ export class CameraController {
 
   returnToTitle() {
     this.mode = 'TITLE';
-    this.titleTime = 4.0; // Already in gentle drift
+    this.titleTime = 4.0;
   }
 
   resetGameplay(robotPos) {
@@ -143,8 +150,11 @@ export class CameraController {
     this.targetPitch = 0.22;
     this.pitch = 0.22;
     this.currentDistance = this.baseDistance;
+    this.targetDistance = this.baseDistance;
+    this.fovKick = 0.0;
 
     const targetLook = robotPos.clone().add(new THREE.Vector3(0, 0.72, 0));
+    this.currentLookTarget.copy(targetLook);
     const offset = this.calculateOrbitalOffset(this.yaw, this.pitch, this.baseDistance);
     this.camera.position.copy(targetLook).add(offset);
     this.camera.lookAt(targetLook);
@@ -163,7 +173,6 @@ export class CameraController {
   }
 
   updateGameOverCamera(delta, robot) {
-    // Slowly pull camera back and tilt upward for contemplative city view
     this.gameOverDistance += (this.targetGameOverDistance - this.gameOverDistance) * delta * 0.8;
     this.gameOverPitch += (this.targetGameOverPitch - this.gameOverPitch) * delta * 0.8;
 
@@ -181,34 +190,30 @@ export class CameraController {
   updateTitleCamera(delta, time) {
     this.titleTime += delta;
 
-    // Mouse parallax
     this.titleMouse.x += (this.titleMouse.targetX - this.titleMouse.x) * 0.05;
     this.titleMouse.y += (this.titleMouse.targetY - this.titleMouse.y) * 0.05;
 
-    // Descent phase (first 4 seconds: flies down from clouds into the street canyon)
-    const descent = Math.min(1.0, this.titleTime / 4.0);
+    const descent = Math.min(1.0, this.titleTime / 3.0);
     const easeDescent = 1 - Math.pow(1 - descent, 3);
 
-    const startY = 85;
-    const targetY = 22;
+    const startY = 32.0;
+    const targetY = 7.5;
     const currentY = startY + (targetY - startY) * easeDescent;
 
-    // Gentle drifting flight along street canyon
-    const x = Math.sin(time * 0.06) * 4.5 + this.titleMouse.x * 4.0;
-    const z = 48 + Math.cos(time * 0.05) * 4.0 - this.titleMouse.y * 3.0;
-    const y = currentY + Math.sin(time * 0.08) * 2.0;
+    const x = Math.sin(time * 0.04) * 2.5 + this.titleMouse.x * 2.5;
+    const z = 70.0 + Math.cos(time * 0.03) * 3.0 - this.titleMouse.y * 2.0;
+    const y = currentY + Math.sin(time * 0.05) * 0.8;
 
     this.camera.position.set(x, y, z);
-    this.camera.lookAt(0, 14, -50);
+    this.camera.lookAt(-20, 24, -90);
   }
 
   updateTransition(delta, robot) {
-    this.transitionProgress += delta * 1.0; // ~1.0s smooth transition
+    this.transitionProgress += delta * 1.0;
 
     const t = Math.min(1.0, this.transitionProgress);
-    const ease = t * t * (3.0 - 2.0 * t); // smoothstep
+    const ease = t * t * (3.0 - 2.0 * t);
 
-    // Desired initial gameplay position
     const targetLook = robot.position.clone().add(new THREE.Vector3(0, 1.0, 0));
     const offset = this.calculateOrbitalOffset(this.yaw, this.pitch, this.baseDistance);
     const desiredPos = targetLook.clone().add(offset);
@@ -222,6 +227,7 @@ export class CameraController {
 
     if (t >= 1.0) {
       this.mode = 'GAMEPLAY';
+      this.currentLookTarget.copy(targetLook);
     }
   }
 
@@ -233,40 +239,67 @@ export class CameraController {
 
     return new THREE.Vector3(
       sinYaw * cosPitch * distance,
-      sinPitch * distance + 0.92,
+      sinPitch * distance + 0.88,
       cosYaw * cosPitch * distance
     );
   }
 
   updateGameplayCamera(delta, robot) {
-    // 1. Smoothly damp yaw and pitch towards target angles (cinematic, non-jittery)
+    // 1. Gamepad Right-Stick Look Integration
+    const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
+    const gp = gamepads && gamepads[0];
+    if (gp) {
+      const rx = gp.axes[2];
+      const ry = gp.axes[3];
+      if (Math.hypot(rx, ry) > 0.15) {
+        const gpSens = this.sensitivity * 2.5;
+        this.targetYaw -= rx * gpSens * delta;
+        const yDir = this.invertY ? 1 : -1;
+        this.targetPitch -= ry * yDir * gpSens * delta;
+        this.targetPitch = Math.max(this.minPitch, Math.min(this.maxPitch, this.targetPitch));
+      }
+    }
+
+    // 2. Smoothly damp yaw and pitch towards target angles (cinematic, non-jittery)
     const dampFactor = Math.min(1.0, delta * this.damping);
     this.yaw += (this.targetYaw - this.yaw) * dampFactor;
     this.pitch += (this.targetPitch - this.pitch) * dampFactor;
 
-    // 2. Center of focus on robot (placed so robot rests in lower center of view)
-    const targetLook = robot.position.clone().add(new THREE.Vector3(0, 0.72, 0));
-    // Subtle look-ahead in robot velocity direction
-    targetLook.addScaledVector(robot.velocity, 0.04);
+    // 3. Smooth Third-Person Follow with subtle velocity look-ahead
+    const rawTargetLook = robot.position.clone().add(new THREE.Vector3(0, 0.72, 0));
+    if (robot.velocity) {
+      rawTargetLook.addScaledVector(robot.velocity, 0.035);
+    }
+    this.currentLookTarget.lerp(rawTargetLook, Math.min(1.0, delta * 16.0));
 
-    // 3. Calculate ideal camera position along orbital angles
+    // 4. Calculate Ideal Orbital Camera Position
     let idealOffset = this.calculateOrbitalOffset(this.yaw, this.pitch, this.baseDistance);
-    let idealPos = targetLook.clone().add(idealOffset);
+    let idealPos = this.currentLookTarget.clone().add(idealOffset);
 
-    // 4. Building Collision Prevention (camera never clips through buildings)
-    idealPos = this.preventBuildingClipping(targetLook, idealPos);
+    // 5. Building Collision Avoidance (camera smoothly pulls in, never clips)
+    idealPos = this.preventBuildingClipping(this.currentLookTarget, idealPos);
 
-    // 5. Ground Clamp (camera never goes below ground)
+    // 6. Ground Clamp (camera never dips below ground level)
     idealPos.y = Math.max(1.2, idealPos.y);
 
-    // 6. Smooth camera position interpolation
-    this.camera.position.lerp(idealPos, Math.min(1.0, delta * 14.0));
-    this.camera.lookAt(targetLook);
+    // 7. Smooth camera position interpolation
+    this.camera.position.lerp(idealPos, Math.min(1.0, delta * 15.0));
+    this.camera.lookAt(this.currentLookTarget);
 
-    // 7. Dynamic Dash FOV expansion
-    const targetFov = robot.isDashing ? this.dashFov : this.baseFov;
-    if (Math.abs(this.camera.fov - targetFov) > 0.08) {
-      this.camera.fov += (targetFov - this.camera.fov) * delta * 5.5;
+    // 8. Dynamic Dash FOV Kick with Snappy Punch & Smooth Recovery
+    const isDashing = !!robot.isDashing;
+    if (isDashing && !this.wasDashing) {
+      // Dash initiation kick impulse
+      this.fovKick = 8.0;
+    }
+    this.wasDashing = isDashing;
+
+    // Decay kick impulse
+    this.fovKick += (0 - this.fovKick) * Math.min(1.0, delta * 8.0);
+
+    const targetFov = isDashing ? (this.dashFov + this.fovKick) : this.baseFov;
+    if (Math.abs(this.camera.fov - targetFov) > 0.05) {
+      this.camera.fov += (targetFov - this.camera.fov) * Math.min(1.0, delta * 10.0);
       this.camera.updateProjectionMatrix();
     }
   }
@@ -277,16 +310,16 @@ export class CameraController {
   preventBuildingClipping(origin, target) {
     const rayDir = target.clone().sub(origin);
     const maxDist = rayDir.length();
+    if (maxDist < 0.001) return target;
     rayDir.normalize();
 
     let closestDist = maxDist;
-    const safetyMargin = 0.5;
+    const safetyMargin = 0.45;
 
     for (let c of this.colliders) {
-      // Simple ray-AABB test
       const t = this.rayAABB(origin, rayDir, c);
       if (t !== null && t > 0.1 && t < closestDist) {
-        closestDist = Math.max(1.6, t - safetyMargin);
+        closestDist = Math.max(1.5, t - safetyMargin);
       }
     }
 

@@ -28,9 +28,9 @@ export function createBuildingMaterial() {
   };
 
   const material = new THREE.MeshStandardMaterial({
-    color: 0x2a3350,       // Dark blue-gray base color (never pure black)
-    roughness: 0.35,       // Wet concrete sheen
-    metalness: 0.50,       // High reflectivity with envMap
+    color: 0x1f2638,       // Deep navy/slate concrete base
+    roughness: 0.85,       // Matte concrete surface
+    metalness: 0.05,       // Low metalness to prevent high specularity
     fog: true
   });
 
@@ -121,27 +121,21 @@ export function createBuildingMaterial() {
         maxLife = max(maxLife, life);
       }
 
-      // 2. Vertical Gradient on Facades (Brighter near street where neon spills upward)
-      float streetSpill = clamp(1.0 - (vCustomWorldPos.y / 85.0), 0.0, 1.0);
-      vec3 streetGlow = vec3(0.06, 0.03, 0.09) * pow(streetSpill, 2.0);
+      // 2. Vertical Gradient on Facades (Gentle street glow fading upward)
+      float streetSpill = clamp(1.0 - (vCustomWorldPos.y / 90.0), 0.0, 1.0);
+      vec3 streetGlow = vec3(0.02, 0.025, 0.04) * pow(streetSpill, 2.0);
       gl_FragColor.rgb += streetGlow;
 
-      // 3. Fresnel Rim Glow on Tower Silhouettes (Edges glow in soft cyan and magenta)
+      // 3. Subtle Fresnel Rim on Tower Silhouettes (Quiet slate/cyan definition, low intensity)
       vec3 viewDir = normalize(cameraPosition - vCustomWorldPos);
       float nDotV = clamp(dot(vCustomNormal, viewDir), 0.0, 1.0);
-      float fresnel = pow(1.0 - nDotV, 3.5);
+      float fresnel = pow(1.0 - nDotV, 4.0);
+      vec3 rimColor = vec3(0.15, 0.35, 0.45);
+      gl_FragColor.rgb += rimColor * (fresnel * 0.18);
 
-      // Cyan / Magenta variation along building coordinates
-      vec3 rimColor = mix(
-        vec3(0.0, 0.85, 1.0),   // Bright electric cyan
-        vec3(1.0, 0.15, 0.70),   // Vivid neon magenta
-        sin(vCustomWorldPos.x * 0.04 + vCustomWorldPos.z * 0.03) * 0.5 + 0.5
-      );
-      gl_FragColor.rgb += rimColor * (fresnel * 0.45);
-
-      // Concrete facade turns into lush mossy dark green under green wave
+      // Concrete facade turns into calm mossy slate green under green wave
       if (maxLife > 0.0) {
-        vec3 mossColor = vec3(0.08, 0.26, 0.12);
+        vec3 mossColor = vec3(0.06, 0.22, 0.10);
         gl_FragColor.rgb = mix(gl_FragColor.rgb, mossColor, maxLife * 0.85);
       }
 
@@ -162,39 +156,29 @@ export function createBuildingMaterial() {
 
         if (isFrame) {
           if (!isGlass) {
-            // Dark architectural window frame
-            gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(0.06, 0.08, 0.12), 0.75);
+            gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(0.04, 0.05, 0.08), 0.80);
           } else {
-            // Glass pane: dark reflective unlit base
-            gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(0.10, 0.14, 0.22), 0.60);
+            gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(0.08, 0.10, 0.15), 0.70);
 
             // Pseudo-random selection for lit windows
             float rand = hash21(cellId + floor(vCustomWorldPos.xz * 0.05));
 
-            // ~15% of windows lit with warm orange, cyan, or pink
-            if (rand < 0.16) {
-              vec3 winColor;
-              if (rand < 0.04) {
-                winColor = vec3(0.0, 0.92, 1.0);   // Cold cyan
-              } else if (rand < 0.08) {
-                winColor = vec3(1.0, 0.25, 0.65);  // Neon pink
-              } else {
-                winColor = vec3(1.0, 0.65, 0.22);  // Warm amber orange
-              }
+            // ~12% of windows lit with soft warm amber
+            if (rand < 0.12) {
+              vec3 winColor = vec3(0.95, 0.68, 0.32); // Soft warm amber
 
-              // Under living green wave, windows shift toward warm radiant emerald
+              // Under living green wave, windows shift toward radiant green
               if (maxLife > 0.0) {
-                winColor = mix(winColor, vec3(0.20, 1.0, 0.50), maxLife * 0.88);
+                winColor = mix(winColor, vec3(0.15, 0.90, 0.45), maxLife * 0.90);
               }
 
-              // Subtle flicker on a small fraction of windows
+              // Subtle slow flicker on a small fraction of windows
               float flicker = 1.0;
-              if (rand < 0.03) {
-                flicker = 0.65 + 0.35 * sin(uTime * 3.5 + rand * 40.0);
+              if (rand < 0.02) {
+                flicker = 0.80 + 0.20 * sin(uTime * 2.0 + rand * 30.0);
               }
 
-              // Emissive bloom contribution
-              gl_FragColor.rgb += winColor * (1.1 * flicker);
+              gl_FragColor.rgb += winColor * (0.65 * flicker);
             }
           }
         }

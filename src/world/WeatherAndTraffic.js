@@ -11,6 +11,10 @@ export class WeatherAndTraffic {
   constructor(scene) {
     this.scene = scene;
     this.wind = new THREE.Vector3(-0.35, -2.8, -0.15);
+    this.dummy = new THREE.Object3D();
+
+    this.maxRainCount = 2000;
+    this.activeRainCount = 2000;
 
     this.initRain();
     this.initSplashRipples();
@@ -18,17 +22,16 @@ export class WeatherAndTraffic {
   }
 
   initRain() {
-    // 4,500 continuous rain streaks using LineSegments for top performance
-    const rainCount = 4500;
-    const rainGeo = new THREE.BufferGeometry();
-    const positions = new Float32Array(rainCount * 6);
+    // 2,000 continuous rain streaks using LineSegments for optimal laptop performance
+    this.rainGeo = new THREE.BufferGeometry();
+    const positions = new Float32Array(this.maxRainCount * 6);
 
     this.rainData = [];
 
-    for (let i = 0; i < rainCount; i++) {
-      const x = (Math.random() - 0.5) * 220;
-      const y = Math.random() * 150;
-      const z = (Math.random() - 0.5) * 220;
+    for (let i = 0; i < this.maxRainCount; i++) {
+      const x = (Math.random() - 0.5) * 200;
+      const y = Math.random() * 140;
+      const z = (Math.random() - 0.5) * 200;
       const length = 2.4 + Math.random() * 1.8;
 
       const idx = i * 6;
@@ -48,7 +51,7 @@ export class WeatherAndTraffic {
       });
     }
 
-    rainGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    this.rainGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
 
     const rainMat = new THREE.LineBasicMaterial({
       color: 0xa8c4e8,
@@ -58,8 +61,21 @@ export class WeatherAndTraffic {
       depthWrite: false
     });
 
-    this.rainLines = new THREE.LineSegments(rainGeo, rainMat);
+    this.rainLines = new THREE.LineSegments(this.rainGeo, rainMat);
     this.scene.add(this.rainLines);
+  }
+
+  setQuality(tier) {
+    if (tier === 'low') {
+      this.activeRainCount = 1000;
+    } else if (tier === 'medium') {
+      this.activeRainCount = 1800;
+    } else {
+      this.activeRainCount = 2000;
+    }
+    if (this.rainGeo) {
+      this.rainGeo.setDrawRange(0, this.activeRainCount * 2);
+    }
   }
 
   setRainAcidic(isAcidic) {
@@ -167,8 +183,9 @@ export class WeatherAndTraffic {
     // 1. Animate Rain System with Wind Reaction
     if (this.rainLines && this.rainData) {
       const pos = this.rainLines.geometry.attributes.position.array;
+      const count = this.activeRainCount;
 
-      for (let i = 0; i < this.rainData.length; i++) {
+      for (let i = 0; i < count; i++) {
         const r = this.rainData[i];
         r.y -= r.speed * delta;
         r.x += this.wind.x * delta * 25;
@@ -177,8 +194,8 @@ export class WeatherAndTraffic {
         // Reset to top when hitting the ground
         if (r.y < 0) {
           r.y = 120 + Math.random() * 30;
-          r.x = (Math.random() - 0.5) * 220;
-          r.z = (Math.random() - 0.5) * 220;
+          r.x = (Math.random() - 0.5) * 200;
+          r.z = (Math.random() - 0.5) * 200;
         }
 
         const idx = i * 6;
@@ -196,7 +213,7 @@ export class WeatherAndTraffic {
 
     // 2. Animate Splash Ripples
     if (this.rippleMesh && this.rippleData) {
-      const dummy = new THREE.Object3D();
+      const dummy = this.dummy;
 
       for (let i = 0; i < this.rippleData.length; i++) {
         const rip = this.rippleData[i];
@@ -221,7 +238,7 @@ export class WeatherAndTraffic {
 
     // 3. Animate Sky Traffic with Curved Paths and Parallax
     if (this.headlightsMesh && this.taillightsMesh) {
-      const dummy = new THREE.Object3D();
+      const dummy = this.dummy;
 
       this.vehicles.forEach((v, i) => {
         v.angle += v.speed * delta;
@@ -231,6 +248,7 @@ export class WeatherAndTraffic {
 
         // Front headlight
         dummy.position.set(x, y, z);
+        dummy.rotation.set(0, 0, 0);
         dummy.scale.set(1, 1, 1);
         dummy.updateMatrix();
         this.headlightsMesh.setMatrixAt(i, dummy.matrix);

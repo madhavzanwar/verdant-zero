@@ -26,6 +26,8 @@ export class SmogSystem {
     this.baseSpreadRate = 0.08;
     this.spreadRate = 0.08;
     this.simTimer = 0;
+    this.simSlice = 0;
+    this.dummy = new THREE.Object3D();
 
     // Temporary pulse clear zones
     this.clearZones = [];
@@ -60,7 +62,8 @@ export class SmogSystem {
 
   initVisuals() {
     // 1. Soft layered toxic cloud sprites (Instanced Billboard Quads)
-    this.cloudCount = 140;
+    this.cloudCount = 70;
+    this.activeCloudCount = 70;
     const cloudGeo = new THREE.PlaneGeometry(16, 16);
 
     // Soft radial gradient canvas for fluffy smog clouds
@@ -88,7 +91,7 @@ export class SmogSystem {
     this.cloudMesh = new THREE.InstancedMesh(cloudGeo, cloudMat, this.cloudCount);
     this.cloudData = [];
 
-    const dummy = new THREE.Object3D();
+    const dummy = this.dummy;
 
     for (let i = 0; i < this.cloudCount; i++) {
       const angle = Math.random() * Math.PI * 2;
@@ -145,6 +148,10 @@ export class SmogSystem {
     return this.grid[gz * this.gridSize + gx];
   }
 
+  getDensity(x, z) {
+    return this.getDensityAt(x, z);
+  }
+
   clearRadius(x, z, radius, duration = 4.0) {
     this.clearZones.push({ x, z, radius, timeLeft: duration });
   }
@@ -174,15 +181,19 @@ export class SmogSystem {
       }
     });
 
-    // Run cellular automata diffusion every 0.25 seconds
-    if (this.simTimer > 0.25) {
+    // Run cellular automata diffusion every 0.10 seconds, sliced across 2 half-frames
+    this.simTimer += delta;
+    if (this.simTimer > 0.10) {
       this.simTimer = 0;
-      this.stepSimulation();
+      this.stepSimulationSlice();
     }
 
-    // Animate Visual Cloud Sprites
-    const dummy = new THREE.Object3D();
-    this.cloudData.forEach((c, i) => {
+    // Animate Visual Cloud Sprites (reusing persistent this.dummy)
+    const dummy = this.dummy;
+    const count = this.activeCloudCount || this.cloudCount;
+
+    for (let i = 0; i < count; i++) {
+      const c = this.cloudData[i];
       // Drift with slow toxic wind
       c.x += Math.sin(gameTime * 0.1 + i) * delta * 1.5;
       c.z += Math.cos(gameTime * 0.08 + i) * delta * 1.2;
@@ -204,12 +215,23 @@ export class SmogSystem {
       dummy.rotation.z = c.rot;
       dummy.updateMatrix();
       this.cloudMesh.setMatrixAt(i, dummy.matrix);
-    });
+    }
     this.cloudMesh.instanceMatrix.needsUpdate = true;
 
     // Check player smog exposure
     const playerSmog = playerPos ? this.getDensityAt(playerPos.x, playerPos.z) : 0;
     return { playerSmog };
+  }
+
+  setQuality(tier) {
+    if (tier === 'low') {
+      this.activeCloudCount = 35;
+    } else {
+      this.activeCloudCount = 70;
+    }
+    if (this.cloudMesh) {
+      this.cloudMesh.count = this.activeCloudCount;
+    }
   }
 
   suppressSmogAt(worldX, worldZ, radius, factor) {
@@ -231,9 +253,14 @@ export class SmogSystem {
     }
   }
 
-  stepSimulation() {
-    // 4-neighbor diffusion & growth
-    for (let gz = 0; gz < this.gridSize; gz++) {
+  stepSimulationSlice() {
+    const half = Math.floor(this.gridSize / 2);
+    const startZ = this.simSlice === 0 ? 0 : half;
+    const endZ = this.simSlice === 0 ? half : this.gridSize;
+    this.simSlice = (this.simSlice + 1) % 2;
+
+    // 4-neighbor diffusion & growth for current vertical slice
+    for (let gz = startZ; gz < endZ; gz++) {
       for (let gx = 0; gx < this.gridSize; gx++) {
         const idx = gz * this.gridSize + gx;
         const current = this.grid[idx];
@@ -245,14 +272,13 @@ export class SmogSystem {
           continue;
         }
 
-        // Neighbors average
-        const up = this.grid[(gz - 1) * this.gridSize + gx];
-        const down = this.grid[(gz + 1) * this.gridSize + gx];
-        const left = this.grid[gz * this.gridSize + (gx - 1)];
-        const right = this.grid[gz * this.gridSize + (gx + 1)];
+        // Neighbors average with boundary safety
+        const up = gz > 0 ? this.grid[(gz - 1) * this.gridSize + gx] : current;
+        const down = gz < this.gridSize - 1 ? this.grid[(gz + 1) * this.gridSize + gx] : current;
+        const left = gx > 0 ? this.grid[gz * this.gridSize + (gx - 1)] : current;
+        const right = gx < this.gridSize - 1 ? this.grid[gz * this.gridSize + (gx + 1)] : current;
 
         const neighborAvg = (up + down + left + right) * 0.25;
-        // Inward diffusion + slow autonomous growth
         let nextVal = current + (neighborAvg - current) * this.spreadRate;
         if (nextVal > 0.05) {
           nextVal += 0.006 * this.spreadRate;
@@ -262,10 +288,12 @@ export class SmogSystem {
       }
     }
 
-    // Swap buffers
-    const temp = this.grid;
-    this.grid = this.nextGrid;
-    this.nextGrid = temp;
+    // When full pass completes, swap buffers
+    if (this.simSlice === 0) {
+      const temp = this.grid;
+      this.grid = this.nextGrid;
+      this.nextGrid = temp;
+    }
   }
 
   reset() {

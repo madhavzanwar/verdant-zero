@@ -31,30 +31,28 @@ export function createProceduralEnvMap(renderer) {
         vec3 d = normalize(vWorldPos);
         float h = d.y;
 
-        vec3 zenith = vec3(0.04, 0.05, 0.18);
-        vec3 midSky = vec3(0.32, 0.08, 0.42);
-        vec3 magenta = vec3(1.0, 0.12, 0.55);
-        vec3 orange = vec3(1.0, 0.45, 0.16);
+        vec3 zenith = vec3(0.02, 0.03, 0.08);
+        vec3 midSky = vec3(0.08, 0.07, 0.16);
+        vec3 horizonLow = vec3(0.14, 0.12, 0.22);
+        vec3 horizonGlow = vec3(0.20, 0.15, 0.26);
 
         vec3 col;
         if (h > 0.25) {
           col = mix(midSky, zenith, clamp((h - 0.25) / 0.75, 0.0, 1.0));
         } else if (h > 0.0) {
-          col = mix(magenta, midSky, clamp(h / 0.25, 0.0, 1.0));
+          col = mix(horizonLow, midSky, clamp(h / 0.25, 0.0, 1.0));
         } else {
-          col = mix(orange, magenta, clamp((h + 0.25) / 0.25, 0.0, 1.0));
+          col = mix(horizonGlow, horizonLow, clamp((h + 0.25) / 0.25, 0.0, 1.0));
         }
 
-        // Concentrated neon light sources in the environment
+        // Restrained, soft directional env light (0.3x multiplier)
         float cyanGlow = max(0.0, dot(d, normalize(vec3(-0.8, 0.15, 0.6))));
-        float pinkGlow = max(0.0, dot(d, normalize(vec3(0.8, 0.15, -0.6))));
-        float purpleGlow = max(0.0, dot(d, normalize(vec3(0.2, 0.4, 0.9))));
+        float amberGlow = max(0.0, dot(d, normalize(vec3(0.8, 0.15, -0.6))));
 
-        col += vec3(0.0, 0.92, 1.0) * pow(cyanGlow, 5.0) * 1.4;
-        col += vec3(1.0, 0.15, 0.65) * pow(pinkGlow, 5.0) * 1.4;
-        col += vec3(0.65, 0.20, 1.0) * pow(purpleGlow, 4.0) * 1.0;
+        col += vec3(0.0, 0.45, 0.55) * pow(cyanGlow, 5.0) * 0.35;
+        col += vec3(0.55, 0.35, 0.15) * pow(amberGlow, 5.0) * 0.30;
 
-        gl_FragColor = vec4(col, 1.0);
+        gl_FragColor = vec4(col * 0.30, 1.0);
       }
     `
   });

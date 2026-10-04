@@ -47,6 +47,7 @@ export class SurvivalManager {
     // Raycaster for upward overhang protection
     this.raycaster = new THREE.Raycaster();
     this.upVector = new THREE.Vector3(0, 1, 0);
+    this._pullDir = new THREE.Vector3();
 
     // 5. HUD DOM References
     this.healthBar = document.getElementById('health-bar-fill');
@@ -121,16 +122,13 @@ export class SurvivalManager {
     const group = new THREE.Group();
     group.position.set(x, y, z);
 
-    const sphere = new THREE.Mesh(this.dropGeo, this.dropMat.clone());
+    const sphere = new THREE.Mesh(this.dropGeo, this.dropMat);
     group.add(sphere);
 
-    const ring = new THREE.Mesh(this.dropRingGeo, this.dropRingMat.clone());
+    const ring = new THREE.Mesh(this.dropRingGeo, this.dropRingMat);
     ring.rotation.x = -Math.PI / 2;
     ring.position.y = -0.4;
     group.add(ring);
-
-    const pointLight = new THREE.PointLight(0x00c8ff, 0.8, 6, 1.6);
-    group.add(pointLight);
 
     this.scene.add(group);
     this.waterDrops.push({
@@ -288,8 +286,8 @@ export class SurvivalManager {
 
       // Gentle magnetic pull
       if (dist < 6.0) {
-        const pullDir = playerPos.clone().sub(drop.group.position).normalize();
-        drop.group.position.addScaledVector(pullDir, delta * 9.0);
+        this._pullDir.subVectors(playerPos, drop.group.position).normalize();
+        drop.group.position.addScaledVector(this._pullDir, delta * 9.0);
       }
 
       // Collect when close
@@ -302,6 +300,12 @@ export class SurvivalManager {
           this.scoreManager.recordWaterCollected();
         }
         this.scene.remove(drop.group);
+        drop.group.traverse(child => {
+          if (child.isMesh) {
+            child.geometry?.dispose();
+            child.material?.dispose();
+          }
+        });
         this.waterDrops.splice(i, 1);
       }
     }
@@ -475,9 +479,15 @@ export class SurvivalManager {
       this.scene.fog.color.setHex(0x2a1650);
     }
 
-    // Remove remaining water drops
+    // Remove and dispose remaining water drops
     for (let drop of this.waterDrops) {
       this.scene.remove(drop.group);
+      drop.group.traverse(child => {
+        if (child.isMesh) {
+          child.geometry?.dispose();
+          child.material?.dispose();
+        }
+      });
     }
     this.waterDrops = [];
 

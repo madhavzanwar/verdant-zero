@@ -37,12 +37,12 @@ export class CityGenerator {
   }
 
   buildGroundAndStreets() {
-    // 1. Wet reflective dark asphalt street plane
+    // 1. Matte dark asphalt street plane (reduced wet glare)
     const groundGeo = new THREE.PlaneGeometry(900, 900);
     const groundMat = new THREE.MeshStandardMaterial({
-      color: 0x161a29,       // Wet dark asphalt (never pure black)
-      roughness: 0.22,       // High wet reflectivity picks up environment map
-      metalness: 0.65
+      color: 0x12151e,       // Matte asphalt slate
+      roughness: 0.72,       // Matte asphalt texture
+      metalness: 0.15        // Low metalness
     });
 
     const ground = new THREE.Mesh(groundGeo, groundMat);
@@ -52,12 +52,12 @@ export class CityGenerator {
     this.scene.add(ground);
     this.groundMesh = ground;
 
-    // 2. High-reflectivity Puddle Patches
+    // 2. Subtle Puddle Patches
     const puddleGeo = new THREE.PlaneGeometry(8, 14);
     const puddleMat = new THREE.MeshStandardMaterial({
-      color: 0x0c0f1e,
-      roughness: 0.04,
-      metalness: 0.95
+      color: 0x080a12,
+      roughness: 0.25,
+      metalness: 0.40
     });
 
     const puddlePositions = [
@@ -95,29 +95,34 @@ export class CityGenerator {
     lineRight.position.set(0.25, 0.02, 0);
     this.scene.add(lineRight);
 
-    // 4. Dashed Outer Lane Lines (Cyan Glow)
+    // 4. Dashed Outer Lane Lines (Cyan Glow) - Batched InstancedMesh
     const dashCount = 35;
+    const totalDashes = (dashCount * 2 + 1) * 2;
     const dashGeo = new THREE.PlaneGeometry(0.2, 3.8);
     const cyanDashMat = new THREE.MeshBasicMaterial({
       color: 0x00f0ff,
       transparent: true,
       opacity: 0.8
     });
+    const dashesMesh = new THREE.InstancedMesh(dashGeo, cyanDashMat, totalDashes);
+    const dummy = new THREE.Object3D();
+    dummy.rotation.x = -Math.PI / 2;
 
+    let dashIdx = 0;
     for (let i = -dashCount; i <= dashCount; i++) {
       const z = i * 6.5;
-      const dashL = new THREE.Mesh(dashGeo, cyanDashMat);
-      dashL.rotation.x = -Math.PI / 2;
-      dashL.position.set(-5.0, 0.02, z);
-      this.scene.add(dashL);
+      dummy.position.set(-5.0, 0.02, z);
+      dummy.updateMatrix();
+      dashesMesh.setMatrixAt(dashIdx++, dummy.matrix);
 
-      const dashR = new THREE.Mesh(dashGeo, cyanDashMat);
-      dashR.rotation.x = -Math.PI / 2;
-      dashR.position.set(5.0, 0.02, z);
-      this.scene.add(dashR);
+      dummy.position.set(5.0, 0.02, z);
+      dummy.updateMatrix();
+      dashesMesh.setMatrixAt(dashIdx++, dummy.matrix);
     }
+    dashesMesh.instanceMatrix.needsUpdate = true;
+    this.scene.add(dashesMesh);
 
-    // 5. Crosswalk Zebra Stripes at Key Intersections
+    // 5. Crosswalk Zebra Stripes at Key Intersections - Batched InstancedMesh
     const zebraGeo = new THREE.PlaneGeometry(0.65, 4.5);
     const zebraMat = new THREE.MeshBasicMaterial({
       color: 0xb5ccf2,
@@ -126,15 +131,27 @@ export class CityGenerator {
     });
 
     const crosswalkZ = [-45, 0, 45, 95];
+    let stripeCount = 0;
     crosswalkZ.forEach(cz => {
       for (let x = -8.5; x <= 8.5; x += 1.4) {
-        if (Math.abs(x) < 0.5) continue; // leave slight gap at center
-        const stripe = new THREE.Mesh(zebraGeo, zebraMat);
-        stripe.rotation.x = -Math.PI / 2;
-        stripe.position.set(x, 0.022, cz);
-        this.scene.add(stripe);
+        if (Math.abs(x) < 0.5) continue;
+        stripeCount++;
       }
     });
+
+    const zebraMesh = new THREE.InstancedMesh(zebraGeo, zebraMat, stripeCount);
+    let stripeIdx = 0;
+    dummy.rotation.x = -Math.PI / 2;
+    crosswalkZ.forEach(cz => {
+      for (let x = -8.5; x <= 8.5; x += 1.4) {
+        if (Math.abs(x) < 0.5) continue;
+        dummy.position.set(x, 0.022, cz);
+        dummy.updateMatrix();
+        zebraMesh.setMatrixAt(stripeIdx++, dummy.matrix);
+      }
+    });
+    zebraMesh.instanceMatrix.needsUpdate = true;
+    this.scene.add(zebraMesh);
   }
 
   buildSkyAtmosphere() {
@@ -434,7 +451,7 @@ export class CityGenerator {
   }
 
   buildStreetLampsAndDetails() {
-    // 1. Street Lampposts with Downward Light Cones & Ground Light Spill
+    // 1. Street Lampposts with Downward Light Cones & Ground Light Spill - Batched InstancedMesh
     const postGeo = new THREE.CylinderGeometry(0.08, 0.12, 7.5, 8);
     const postMat = new THREE.MeshStandardMaterial({ color: 0x334155, metalness: 0.8, roughness: 0.3 });
     const lampHeadGeo = new THREE.BoxGeometry(0.8, 0.3, 0.4);
@@ -462,41 +479,60 @@ export class CityGenerator {
     });
 
     const lampZ = [-90, -60, -30, 0, 30, 60, 90];
+    const lampCount = lampZ.length * 2; // 14 lamps
+
+    const postInst = new THREE.InstancedMesh(postGeo, postMat, lampCount);
+    const headInst = new THREE.InstancedMesh(lampHeadGeo, lampEmissiveMat, lampCount);
+    const coneInst = new THREE.InstancedMesh(coneGeo, coneMat, lampCount);
+    const spillInst = new THREE.InstancedMesh(spillGeo, spillMat, lampCount);
+
+    const dummy = new THREE.Object3D();
+    let idx = 0;
     lampZ.forEach(z => {
-      // Left sidewalk
-      this.createLampInstance(-10.5, z, postGeo, postMat, lampHeadGeo, lampEmissiveMat, coneGeo, coneMat, spillGeo, spillMat);
-      // Right sidewalk
-      this.createLampInstance(10.5, z, postGeo, postMat, lampHeadGeo, lampEmissiveMat, coneGeo, coneMat, spillGeo, spillMat);
+      [-10.5, 10.5].forEach(x => {
+        const dir = x < 0 ? 1 : -1;
+
+        // Post
+        dummy.position.set(x, 3.75, z);
+        dummy.rotation.set(0, 0, 0);
+        dummy.scale.set(1, 1, 1);
+        dummy.updateMatrix();
+        postInst.setMatrixAt(idx, dummy.matrix);
+
+        // Head
+        dummy.position.set(x + dir * 0.9, 7.4, z);
+        dummy.rotation.set(0, 0, 0);
+        dummy.scale.set(1, 1, 1);
+        dummy.updateMatrix();
+        headInst.setMatrixAt(idx, dummy.matrix);
+
+        // Cone
+        dummy.position.set(x + dir * 0.9, 3.75, z);
+        dummy.rotation.set(0, 0, 0);
+        dummy.scale.set(1, 1, 1);
+        dummy.updateMatrix();
+        coneInst.setMatrixAt(idx, dummy.matrix);
+
+        // Spill
+        dummy.position.set(x + dir * 0.9, 0.025, z);
+        dummy.rotation.set(-Math.PI / 2, 0, 0);
+        dummy.scale.set(1, 1, 1);
+        dummy.updateMatrix();
+        spillInst.setMatrixAt(idx, dummy.matrix);
+
+        idx++;
+      });
     });
-  }
 
-  createLampInstance(x, z, postGeo, postMat, lampHeadGeo, lampEmissiveMat, coneGeo, coneMat, spillGeo, spillMat) {
-    const lampGroup = new THREE.Group();
-    lampGroup.position.set(x, 0, z);
+    postInst.instanceMatrix.needsUpdate = true;
+    headInst.instanceMatrix.needsUpdate = true;
+    coneInst.instanceMatrix.needsUpdate = true;
+    spillInst.instanceMatrix.needsUpdate = true;
 
-    // Post
-    const post = new THREE.Mesh(postGeo, postMat);
-    post.position.y = 3.75;
-    lampGroup.add(post);
-
-    // Arm and head pointing inward toward street
-    const dir = x < 0 ? 1 : -1;
-    const head = new THREE.Mesh(lampHeadGeo, lampEmissiveMat);
-    head.position.set(dir * 0.9, 7.4, 0);
-    lampGroup.add(head);
-
-    // Downward volumetric cone
-    const cone = new THREE.Mesh(coneGeo, coneMat);
-    cone.position.set(dir * 0.9, 3.75, 0);
-    lampGroup.add(cone);
-
-    // Ground light pool
-    const spill = new THREE.Mesh(spillGeo, spillMat);
-    spill.rotation.x = -Math.PI / 2;
-    spill.position.set(dir * 0.9, 0.025, 0);
-    lampGroup.add(spill);
-
-    this.scene.add(lampGroup);
+    this.scene.add(postInst);
+    this.scene.add(headInst);
+    this.scene.add(coneInst);
+    this.scene.add(spillInst);
   }
 
   buildNeonGlyphSigns() {
@@ -534,81 +570,114 @@ export class CityGenerator {
 
     this.pinkNeonMat = new THREE.MeshBasicMaterial({
       map: glyphTex,
-      color: 0xff0077,
+      color: 0xcc4477,       // Muted rose
       transparent: true,
-      opacity: 0.95,
+      opacity: 0.80,
       side: THREE.DoubleSide
     });
 
     this.cyanNeonMat = new THREE.MeshBasicMaterial({
       map: glyphTex,
-      color: 0x00f0ff,
+      color: 0x3399aa,       // Pale atmospheric cyan
       transparent: true,
-      opacity: 0.95,
+      opacity: 0.80,
       side: THREE.DoubleSide
     });
 
     this.amberNeonMat = new THREE.MeshBasicMaterial({
       map: glyphTex,
-      color: 0xffaa00,
+      color: 0xcc8833,       // Soft warm amber
       transparent: true,
-      opacity: 0.95,
+      opacity: 0.85,
       side: THREE.DoubleSide
     });
 
     const signGeo = new THREE.PlaneGeometry(6, 16);
+    const signSpillGeo = new THREE.PlaneGeometry(12, 12);
     const signCount = 28;
 
-    // Ground light spill decal for neon signs
-    const signSpillGeo = new THREE.PlaneGeometry(12, 12);
+    const pinkCount = Math.ceil(signCount / 3); // 10
+    const cyanCount = Math.floor(signCount / 3); // 9
+    const amberCount = signCount - pinkCount - cyanCount; // 9
 
-    this.signs = [];
+    const pinkSignsMesh = new THREE.InstancedMesh(signGeo, this.pinkNeonMat, pinkCount);
+    const cyanSignsMesh = new THREE.InstancedMesh(signGeo, this.cyanNeonMat, cyanCount);
+    const amberSignsMesh = new THREE.InstancedMesh(signGeo, this.amberNeonMat, amberCount);
+
+    const pinkSpillMat = new THREE.MeshBasicMaterial({ color: 0xff0077, transparent: true, opacity: 0.07, blending: THREE.AdditiveBlending, depthWrite: false });
+    const cyanSpillMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff, transparent: true, opacity: 0.07, blending: THREE.AdditiveBlending, depthWrite: false });
+    const amberSpillMat = new THREE.MeshBasicMaterial({ color: 0xffaa00, transparent: true, opacity: 0.07, blending: THREE.AdditiveBlending, depthWrite: false });
+
+    const pinkSpillsMesh = new THREE.InstancedMesh(signSpillGeo, pinkSpillMat, pinkCount);
+    const cyanSpillsMesh = new THREE.InstancedMesh(signSpillGeo, cyanSpillMat, cyanCount);
+    const amberSpillsMesh = new THREE.InstancedMesh(signSpillGeo, amberSpillMat, amberCount);
+
+    const dummy = new THREE.Object3D();
+    const spillDummy = new THREE.Object3D();
+    let pIdx = 0, cIdx = 0, aIdx = 0;
 
     for (let i = 0; i < signCount; i++) {
       const b = this.buildingPositions[i % this.buildingPositions.length];
-      const colHex = (i % 3 === 0) ? 0xff0077 : (i % 3 === 1 ? 0x00f0ff : 0xffaa00);
-      const mat = (i % 3 === 0) ? this.pinkNeonMat : (i % 3 === 1 ? this.cyanNeonMat : this.amberNeonMat);
-      const signMesh = new THREE.Mesh(signGeo, mat);
-
+      const colGroup = i % 3;
       const isXSide = i % 2 === 0;
       let signX, signZ;
       if (isXSide) {
         signX = b.x + b.w / 2 + 0.15;
         signZ = b.z;
-        signMesh.position.set(signX, Math.min(b.y - 10, 22), signZ);
-        signMesh.rotation.y = Math.PI / 2;
+        dummy.position.set(signX, Math.min(b.y - 10, 22), signZ);
+        dummy.rotation.set(0, Math.PI / 2, 0);
       } else {
         signX = b.x;
         signZ = b.z + b.d / 2 + 0.15;
-        signMesh.position.set(signX, Math.min(b.y - 10, 22), signZ);
-        signMesh.rotation.y = 0;
+        dummy.position.set(signX, Math.min(b.y - 10, 22), signZ);
+        dummy.rotation.set(0, 0, 0);
       }
+      dummy.scale.set(1, 1, 1);
+      dummy.updateMatrix();
 
-      this.scene.add(signMesh);
-      this.signs.push({ mesh: signMesh, speed: 2 + Math.random() * 3, phase: Math.random() * 10 });
+      spillDummy.position.set(signX, 0.026, signZ);
+      spillDummy.rotation.set(-Math.PI / 2, 0, 0);
+      spillDummy.scale.set(1, 1, 1);
+      spillDummy.updateMatrix();
 
-      // Neon ground spill beneath sign
-      const signSpillMat = new THREE.MeshBasicMaterial({
-        color: colHex,
-        transparent: true,
-        opacity: 0.07,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false
-      });
-      const signSpill = new THREE.Mesh(signSpillGeo, signSpillMat);
-      signSpill.rotation.x = -Math.PI / 2;
-      signSpill.position.set(signX, 0.026, signZ);
-      this.scene.add(signSpill);
+      if (colGroup === 0) {
+        pinkSignsMesh.setMatrixAt(pIdx, dummy.matrix);
+        pinkSpillsMesh.setMatrixAt(pIdx, spillDummy.matrix);
+        pIdx++;
+      } else if (colGroup === 1) {
+        cyanSignsMesh.setMatrixAt(cIdx, dummy.matrix);
+        cyanSpillsMesh.setMatrixAt(cIdx, spillDummy.matrix);
+        cIdx++;
+      } else {
+        amberSignsMesh.setMatrixAt(aIdx, dummy.matrix);
+        amberSpillsMesh.setMatrixAt(aIdx, spillDummy.matrix);
+        aIdx++;
+      }
     }
+
+    pinkSignsMesh.instanceMatrix.needsUpdate = true;
+    cyanSignsMesh.instanceMatrix.needsUpdate = true;
+    amberSignsMesh.instanceMatrix.needsUpdate = true;
+
+    pinkSpillsMesh.instanceMatrix.needsUpdate = true;
+    cyanSpillsMesh.instanceMatrix.needsUpdate = true;
+    amberSpillsMesh.instanceMatrix.needsUpdate = true;
+
+    this.scene.add(pinkSignsMesh);
+    this.scene.add(cyanSignsMesh);
+    this.scene.add(amberSignsMesh);
+    this.scene.add(pinkSpillsMesh);
+    this.scene.add(cyanSpillsMesh);
+    this.scene.add(amberSpillsMesh);
   }
 
   buildVolumetricLightShafts() {
     // 1. Street level light shafts rising from alleys
     const shaftGeo = new THREE.CylinderGeometry(1.0, 7.5, 42, 16, 1, true);
     const shaftMat1 = new THREE.MeshBasicMaterial({
-      color: 0x00f0ff,
+      color: 0x336677,
       transparent: true,
-      opacity: 0.10,
+      opacity: 0.04,
       side: THREE.DoubleSide,
       depthWrite: false,
       blending: THREE.AdditiveBlending
@@ -619,14 +688,14 @@ export class CityGenerator {
     this.scene.add(shaft1);
 
     const shaftMat2 = shaftMat1.clone();
-    shaftMat2.color.setHex(0xff0088);
+    shaftMat2.color.setHex(0x553366);
     const shaft2 = new THREE.Mesh(shaftGeo, shaftMat2);
     shaft2.position.set(-15, 21, -12);
     this.scene.add(shaft2);
 
     // 2. Sweeping Volumetric Searchlights in Sky (mesh cones, zero light overhead)
     this.searchlights = [];
-    const searchlightColors = [0x00f0ff, 0x9b51e0, 0x00ff88];
+    const searchlightColors = [0x337788, 0x554477, 0x2e6644];
     const origins = [
       new THREE.Vector3(-45, 12, -30),
       new THREE.Vector3(38, 14, -45),
@@ -639,7 +708,7 @@ export class CityGenerator {
       const coneMat = new THREE.MeshBasicMaterial({
         color: searchlightColors[idx],
         transparent: true,
-        opacity: 0.08,
+        opacity: 0.035,
         side: THREE.DoubleSide,
         depthWrite: false,
         blending: THREE.AdditiveBlending
@@ -706,11 +775,14 @@ export class CityGenerator {
       this.beaconMesh.material.opacity = flash;
     }
 
-    if (this.signs) {
-      this.signs.forEach(s => {
-        const flicker = 0.85 + 0.15 * Math.sin(time * s.speed + s.phase);
-        s.mesh.material.opacity = flicker;
-      });
+    if (this.pinkNeonMat) {
+      this.pinkNeonMat.opacity = 0.72 + 0.16 * Math.sin(time * 3.4);
+    }
+    if (this.cyanNeonMat) {
+      this.cyanNeonMat.opacity = 0.72 + 0.16 * Math.sin(time * 4.2 + 1.2);
+    }
+    if (this.amberNeonMat) {
+      this.amberNeonMat.opacity = 0.78 + 0.14 * Math.sin(time * 2.8 + 2.5);
     }
 
     // Sweep volumetric searchlight cones
