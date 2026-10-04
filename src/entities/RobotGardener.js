@@ -2,12 +2,12 @@ import * as THREE from 'three';
 
 /**
  * Robot Gardener Entity
- * - Compact capsule chassis with rounded primitives
- * - Large expressive glowing green eye that blinks, looks around, and widens near planting spots
- * - Articulated side arms & swinging seed lantern with real PointLight
- * - Hover thruster with particle trail and idle bobbing
- * - Dynamic tilt, landing squash, WASD flight + hover + dash controls
- * - Collision detection with streets and building rooftops
+ * - Light brushed metal off-white/silver chassis (#dae2ed) with dark accent panels
+ * - Bright glowing green eye with soft radiant halo
+ * - Emissive hover thruster ring & particle trail
+ * - Real point lights following player (seed light, cyan rim, magenta rim, warm ground bounce)
+ * - Soft dynamic blob shadow on ground that scales with hover height
+ * - WASD & Arrow key navigation, dynamic tilt, landing squash, camera gaze tracking
  */
 
 export class RobotGardener {
@@ -38,42 +38,61 @@ export class RobotGardener {
     this.buildRobotMesh();
     this.scene.add(this.mesh);
 
+    // Soft blob shadow on ground
+    this.initBlobShadow();
+
     // Thruster exhaust particles
     this.initThrusterParticles();
   }
 
   buildRobotMesh() {
-    // 1. Compact Rounded Capsule Body (Dark graphite matte chassis)
+    // 1. Light Brushed Metal Body (Off-white and silver with dark panels)
     const bodyGeo = new THREE.CapsuleGeometry(0.55, 0.75, 16, 24);
     const bodyMat = new THREE.MeshStandardMaterial({
-      color: 0x1f242d,
-      roughness: 0.45,
-      metalness: 0.65
+      color: 0xdae2ed,       // Light silver / off-white brushed metal
+      roughness: 0.28,
+      metalness: 0.68
     });
     this.bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
     this.mesh.add(this.bodyMesh);
 
-    // Decorative copper/brass collar band
-    const bandGeo = new THREE.TorusGeometry(0.56, 0.04, 12, 32);
+    // Dark graphite accent panels (Belly & Back plate)
+    const panelGeo = new THREE.CapsuleGeometry(0.56, 0.45, 12, 16);
+    const panelMat = new THREE.MeshStandardMaterial({
+      color: 0x242a38,
+      roughness: 0.40,
+      metalness: 0.50
+    });
+    const panel = new THREE.Mesh(panelGeo, panelMat);
+    panel.scale.set(0.98, 0.75, 0.98);
+    panel.position.y = -0.05;
+    this.bodyMesh.add(panel);
+
+    // Decorative polished brass/copper collar band
+    const bandGeo = new THREE.TorusGeometry(0.57, 0.04, 12, 32);
     const bandMat = new THREE.MeshStandardMaterial({
-      color: 0xc4975a,
-      roughness: 0.3,
-      metalness: 0.8
+      color: 0xcca062,
+      roughness: 0.25,
+      metalness: 0.85
     });
     const band = new THREE.Mesh(bandGeo, bandMat);
     band.rotation.x = Math.PI / 2;
-    band.position.y = 0.05;
+    band.position.y = 0.06;
     this.bodyMesh.add(band);
 
-    // 2. Large Expressive Glowing Green Eye (Cyclops lens)
+    // 2. Large Expressive Glowing Green Eye with Soft Halo
     const eyeSocketGeo = new THREE.CylinderGeometry(0.32, 0.32, 0.15, 24);
-    const socketMat = new THREE.MeshStandardMaterial({ color: 0x111318, roughness: 0.8 });
+    const socketMat = new THREE.MeshStandardMaterial({
+      color: 0x181c26,
+      roughness: 0.5,
+      metalness: 0.7
+    });
     const eyeSocket = new THREE.Mesh(eyeSocketGeo, socketMat);
     eyeSocket.rotation.x = Math.PI / 2;
     eyeSocket.position.set(0, 0.35, 0.52);
     this.bodyMesh.add(eyeSocket);
 
-    // Glowing green iris / pupil
+    // Glowing green iris
     const irisGeo = new THREE.SphereGeometry(0.24, 24, 24);
     this.irisMat = new THREE.MeshBasicMaterial({ color: 0x00ff88 });
     this.eyeMesh = new THREE.Mesh(irisGeo, this.irisMat);
@@ -89,9 +108,23 @@ export class RobotGardener {
     this.pupilMesh.scale.set(1, 1, 0.3);
     this.bodyMesh.add(this.pupilMesh);
 
+    // Soft radiant eye halo
+    const haloGeo = new THREE.RingGeometry(0.24, 0.48, 24);
+    const haloMat = new THREE.MeshBasicMaterial({
+      color: 0x00ff88,
+      transparent: true,
+      opacity: 0.55,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    });
+    this.eyeHalo = new THREE.Mesh(haloGeo, haloMat);
+    this.eyeHalo.position.set(0, 0.35, 0.58);
+    this.bodyMesh.add(this.eyeHalo);
+
     // Eyelid for blinking
     const lidGeo = new THREE.SphereGeometry(0.26, 24, 16, 0, Math.PI * 2, 0, Math.PI / 2);
-    const lidMat = new THREE.MeshStandardMaterial({ color: 0x1f242d, roughness: 0.5 });
+    const lidMat = new THREE.MeshStandardMaterial({ color: 0xdae2ed, roughness: 0.3 });
     this.eyelid = new THREE.Mesh(lidGeo, lidMat);
     this.eyelid.position.set(0, 0.35, 0.56);
     this.eyelid.rotation.x = -Math.PI / 2;
@@ -100,7 +133,7 @@ export class RobotGardener {
 
     // 3. Small Articulated Side Arms
     const armGeo = new THREE.CylinderGeometry(0.06, 0.06, 0.45, 8);
-    const armMat = new THREE.MeshStandardMaterial({ color: 0x334155, metalness: 0.7 });
+    const armMat = new THREE.MeshStandardMaterial({ color: 0x3d4b60, metalness: 0.75, roughness: 0.3 });
 
     this.leftArm = new THREE.Mesh(armGeo, armMat);
     this.leftArm.position.set(-0.62, 0.05, 0.05);
@@ -112,18 +145,16 @@ export class RobotGardener {
     this.rightArm.rotation.z = -Math.PI / 6;
     this.bodyMesh.add(this.rightArm);
 
-    // 4. Hanging Seed Lantern (Carries the Last Seed)
+    // 4. Hanging Seed Lantern
     this.lanternPivot = new THREE.Group();
     this.lanternPivot.position.set(0.48, -0.15, 0.28);
     this.bodyMesh.add(this.lanternPivot);
 
-    // Chain link
     const chainGeo = new THREE.CylinderGeometry(0.02, 0.02, 0.28, 6);
     const chain = new THREE.Mesh(chainGeo, armMat);
     chain.position.y = -0.14;
     this.lanternPivot.add(chain);
 
-    // Lantern glass enclosure
     const lanternGeo = new THREE.CylinderGeometry(0.18, 0.18, 0.38, 12);
     const lanternMat = new THREE.MeshStandardMaterial({
       color: 0x00f0ff,
@@ -135,24 +166,77 @@ export class RobotGardener {
     lantern.position.y = -0.38;
     this.lanternPivot.add(lantern);
 
-    // Glowing Genesis Seed inside
     const seedGeo = new THREE.SphereGeometry(0.1, 16, 16);
     const seedMat = new THREE.MeshBasicMaterial({ color: 0x00ff88 });
     this.seedMesh = new THREE.Mesh(seedGeo, seedMat);
     this.seedMesh.position.y = -0.38;
     this.lanternPivot.add(this.seedMesh);
 
-    // Real dynamic PointLight from the seed
-    this.seedLight = new THREE.PointLight(0x00ff88, 2.5, 12, 1.4);
+    // Real dynamic PointLight from seed
+    this.seedLight = new THREE.PointLight(0x00ff88, 2.2, 12, 1.4);
     this.seedLight.position.y = -0.38;
     this.lanternPivot.add(this.seedLight);
 
-    // 5. Thruster Nozzle at Base
-    const thrusterGeo = new THREE.CylinderGeometry(0.24, 0.12, 0.22, 16);
-    const thrusterMat = new THREE.MeshStandardMaterial({ color: 0x111318, metalness: 0.9 });
+    // 5. Player Rim & Fill Point Lights (strictly under 8 total real lights in scene)
+    // Cyan Rim Light (Left)
+    this.rimLightCyan = new THREE.PointLight(0x00f0ff, 1.5, 14, 1.6);
+    this.rimLightCyan.position.set(-1.4, 0.8, 0.6);
+    this.bodyMesh.add(this.rimLightCyan);
+
+    // Magenta Rim Light (Right)
+    this.rimLightMagenta = new THREE.PointLight(0xff007f, 1.5, 14, 1.6);
+    this.rimLightMagenta.position.set(1.4, 0.8, -0.6);
+    this.bodyMesh.add(this.rimLightMagenta);
+
+    // Warm Ground Bounce Light (Underneath)
+    this.groundBounceLight = new THREE.PointLight(0xffaa44, 0.8, 8, 1.8);
+    this.groundBounceLight.position.set(0, -0.7, 0);
+    this.bodyMesh.add(this.groundBounceLight);
+
+    // 6. Thruster Nozzle & Emissive Thruster Ring at Base
+    const thrusterGeo = new THREE.CylinderGeometry(0.24, 0.14, 0.22, 16);
+    const thrusterMat = new THREE.MeshStandardMaterial({ color: 0x222834, metalness: 0.85, roughness: 0.3 });
     const thruster = new THREE.Mesh(thrusterGeo, thrusterMat);
     thruster.position.y = -0.85;
     this.bodyMesh.add(thruster);
+
+    // Glowing cyan/green emissive thruster ring
+    const ringGeo = new THREE.TorusGeometry(0.22, 0.045, 12, 24);
+    const ringMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
+    this.thrusterRing = new THREE.Mesh(ringGeo, ringMat);
+    this.thrusterRing.rotation.x = Math.PI / 2;
+    this.thrusterRing.position.y = -0.96;
+    this.bodyMesh.add(this.thrusterRing);
+  }
+
+  initBlobShadow() {
+    // Generate soft circular radial gradient canvas texture
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 128;
+    const ctx = canvas.getContext('2d');
+
+    const grad = ctx.createRadialGradient(64, 64, 0, 64, 64, 60);
+    grad.addColorStop(0, 'rgba(8, 10, 20, 0.72)');
+    grad.addColorStop(0.5, 'rgba(8, 10, 20, 0.40)');
+    grad.addColorStop(1, 'rgba(8, 10, 20, 0.0)');
+
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 128, 128);
+
+    const shadowTex = new THREE.CanvasTexture(canvas);
+    const shadowGeo = new THREE.PlaneGeometry(2.4, 2.4);
+    const shadowMat = new THREE.MeshBasicMaterial({
+      map: shadowTex,
+      transparent: true,
+      opacity: 0.72,
+      depthWrite: false
+    });
+
+    this.blobShadow = new THREE.Mesh(shadowGeo, shadowMat);
+    this.blobShadow.rotation.x = -Math.PI / 2;
+    this.blobShadow.position.set(this.position.x, 0.02, this.position.z);
+    this.scene.add(this.blobShadow);
   }
 
   initThrusterParticles() {
@@ -185,95 +269,113 @@ export class RobotGardener {
     this.scene.add(this.thrusterParticles);
   }
 
-  /**
-   * Update Robot Physics, Animation & Collision
-   */
-  update(delta, time, input, cameraAngle, cameraPitch) {
-    // 1. Process Input (WASD and Arrow keys supported simultaneously)
-    const moveVector = new THREE.Vector3();
+  update(delta, time, input, cameraAngle = 0, cameraPitch = 0) {
+    // 1. WASD & Arrow Key Movement Calculation
+    let moveX = 0;
+    let moveZ = 0;
 
-    if (input.isKeyPressed('KeyW') || input.isKeyPressed('ArrowUp')) moveVector.z -= 1;
-    if (input.isKeyPressed('KeyS') || input.isKeyPressed('ArrowDown')) moveVector.z += 1;
-    if (input.isKeyPressed('KeyA') || input.isKeyPressed('ArrowLeft')) moveVector.x -= 1;
-    if (input.isKeyPressed('KeyD') || input.isKeyPressed('ArrowRight')) moveVector.x += 1;
+    const isUp = input.isKeyPressed('KeyW') || input.isKeyPressed('ArrowUp');
+    const isDown = input.isKeyPressed('KeyS') || input.isKeyPressed('ArrowDown');
+    const isLeft = input.isKeyPressed('KeyA') || input.isKeyPressed('ArrowLeft');
+    const isRight = input.isKeyPressed('KeyD') || input.isKeyPressed('ArrowRight');
 
-    this.isDashing = input.isKeyPressed('ShiftLeft') || input.isKeyPressed('ShiftRight');
-    const isHovering = input.isKeyPressed('Space');
+    if (isUp) moveZ -= 1;
+    if (isDown) moveZ += 1;
+    if (isLeft) moveX -= 1;
+    if (isRight) moveX += 1;
 
-    const currentSpeed = this.isDashing ? this.dashSpeed : this.speed;
-
-    // Apply Camera-Relative Movement
+    // Movement direction relative to camera angle
+    const moveVector = new THREE.Vector2(moveX, moveZ);
     if (moveVector.lengthSq() > 0) {
       moveVector.normalize();
-      moveVector.applyAxisAngle(new THREE.Vector3(0, 1, 0), cameraAngle);
-      
-      this.velocity.x = moveVector.x * currentSpeed;
-      this.velocity.z = moveVector.z * currentSpeed;
-
-      // Face movement direction smoothly
-      const targetHeading = Math.atan2(moveVector.x, moveVector.z);
-      this.mesh.rotation.y = targetHeading;
-    } else {
-      this.velocity.x *= 0.85;
-      this.velocity.z *= 0.85;
+      moveVector.rotateAround(new THREE.Vector2(0, 0), -cameraAngle);
     }
 
-    // Vertical Hover vs Gravity
+    // Dash burst handling (Shift key)
+    this.isDashing = input.isKeyPressed('ShiftLeft') || input.isKeyPressed('ShiftRight');
+    const currentSpeed = this.isDashing ? this.dashSpeed : this.speed;
+
+    // Apply planar velocity with inertia
+    this.velocity.x += (moveVector.x * currentSpeed - this.velocity.x) * delta * 8.0;
+    this.velocity.z += (moveVector.y * currentSpeed - this.velocity.z) * delta * 8.0;
+
+    // Hover thruster (Space key)
+    const isHovering = input.isKeyPressed('Space');
     if (isHovering) {
       this.velocity.y += this.hoverThrust * delta;
       this.velocity.y = Math.min(this.velocity.y, 14.0);
     } else {
       this.velocity.y -= this.gravity * delta;
-      this.velocity.y = Math.max(this.velocity.y, -18.0);
     }
 
-    // Apply movement
+    // Apply velocity to position
     this.position.x += this.velocity.x * delta;
-    this.position.z += this.velocity.z * delta;
     this.position.y += this.velocity.y * delta;
+    this.position.z += this.velocity.z * delta;
 
-    // 2. Collision Resolution with City Buildings & Rooftops
+    // 2. Collision with Buildings & Rooftops
     this.resolveCollisions();
 
-    // 3. Dynamic Tilt & Idle Bobbing
-    const targetTiltZ = -(this.velocity.x / currentSpeed) * 0.35;
-    const targetTiltX = (this.velocity.z / currentSpeed) * 0.35;
-    this.tilt.z += (targetTiltZ - this.tilt.z) * 0.15;
-    this.tilt.x += (targetTiltX - this.tilt.x) * 0.15;
+    // Idle hovering bobbing motion
+    const idleBob = Math.sin(time * 3.0) * 0.08;
+    this.mesh.position.set(this.position.x, this.position.y + idleBob, this.position.z);
 
-    this.bodyMesh.rotation.x = this.tilt.x;
-    this.bodyMesh.rotation.z = this.tilt.z;
+    // Update soft blob shadow directly on ground
+    if (this.blobShadow) {
+      this.blobShadow.position.set(this.position.x, this.currentGroundY + 0.02, this.position.z);
+      const heightAboveGround = Math.max(0, this.position.y - this.currentGroundY);
+      const shadowScale = Math.max(0.6, 1.0 + heightAboveGround * 0.22);
+      this.blobShadow.scale.set(shadowScale, shadowScale, 1);
+      this.blobShadow.material.opacity = Math.max(0.18, 0.72 - heightAboveGround * 0.10);
+    }
 
-    // Idle vertical bobbing
-    const bob = Math.sin(time * 3.5) * 0.08;
-    this.mesh.position.set(this.position.x, this.position.y + bob, this.position.z);
+    // 3. Dynamic Tilt into Movement Direction
+    const targetTiltZ = -this.velocity.x * 0.045;
+    const targetTiltX = this.velocity.z * 0.045;
+    this.tilt.z += (targetTiltZ - this.tilt.z) * delta * 10.0;
+    this.tilt.x += (targetTiltX - this.tilt.x) * delta * 10.0;
+
+    this.mesh.rotation.z = this.tilt.z;
+    this.mesh.rotation.x = this.tilt.x;
+
+    // Smoothly turn body towards movement direction if moving
+    if (moveVector.lengthSq() > 0.01) {
+      const targetFacing = Math.atan2(this.velocity.x, this.velocity.z);
+      let diff = targetFacing - this.mesh.rotation.y;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      this.mesh.rotation.y += diff * delta * 7.0;
+    }
 
     // Lantern swing inertia
     this.lanternPivot.rotation.z = -this.tilt.z * 1.5 + Math.sin(time * 2.5) * 0.08;
     this.lanternPivot.rotation.x = -this.tilt.x * 1.5;
 
-    // 4. Expressive Eye Behavior (Blinking, Widening & Camera Gaze Tracking)
+    // 4. Expressive Eye Behavior
     this.updateEye(delta, time, cameraAngle, cameraPitch);
 
-    // 5. Thruster Exhaust Particles
+    // 5. Thruster Exhaust Particles & Emissive Glow
     this.updateThrusterParticles(delta, isHovering);
+
+    // Thruster ring brightness
+    if (this.thrusterRing) {
+      const ringGlow = isHovering ? 0x00ffff : 0x00ffaa;
+      this.thrusterRing.material.color.setHex(ringGlow);
+    }
   }
 
   resolveCollisions() {
     const playerRadius = 0.65;
-    let groundY = 0.9; // Street level
+    let groundY = 0.9;
 
     for (let c of this.colliders) {
-      // Check if player is horizontally within building footprint (+ margin)
       const withinX = this.position.x > c.minX - playerRadius && this.position.x < c.maxX + playerRadius;
       const withinZ = this.position.z > c.minZ - playerRadius && this.position.z < c.maxZ + playerRadius;
 
       if (withinX && withinZ) {
-        // If above building roof, set rooftop as ground!
         if (this.position.y >= c.height - 0.2) {
           groundY = Math.max(groundY, c.height + 0.9);
         } else {
-          // Horizontal Wall Collision: push out along shortest axis
           const distMinX = Math.abs(this.position.x - (c.minX - playerRadius));
           const distMaxX = Math.abs(this.position.x - (c.maxX + playerRadius));
           const distMinZ = Math.abs(this.position.z - (c.minZ - playerRadius));
@@ -289,10 +391,10 @@ export class RobotGardener {
       }
     }
 
-    // Ground / Rooftop landing resolution
+    this.currentGroundY = groundY;
+
     if (this.position.y <= groundY) {
       if (!this.isGrounded && this.velocity.y < -3.0) {
-        // Landing squash trigger
         this.squash.y = 0.82;
         this.squash.xz = 1.15;
       }
@@ -303,52 +405,53 @@ export class RobotGardener {
       this.isGrounded = false;
     }
 
-    // Smoothly spring squash back to normal
     this.squash.y += (1.0 - this.squash.y) * 0.15;
     this.squash.xz += (1.0 - this.squash.xz) * 0.15;
     this.bodyMesh.scale.set(this.squash.xz, this.squash.y, this.squash.xz);
   }
 
   updateEye(delta, time, cameraAngle, cameraPitch) {
-    // Eye widening when near a planting spot
     const targetScale = this.isNearPlantSpot ? 1.35 : 1.0;
     const currentScale = this.eyeMesh.scale.x;
     const newScale = currentScale + (targetScale - currentScale) * 0.12;
     this.eyeMesh.scale.set(newScale, newScale, 0.4);
     this.pupilMesh.scale.set(newScale, newScale, 0.3);
 
-    // Pulse brightness when excited near planting spot
+    if (this.eyeHalo) {
+      this.eyeHalo.scale.set(newScale, newScale, 1);
+    }
+
     if (this.isNearPlantSpot) {
       this.irisMat.color.setHex(0x33ffaa);
     } else {
       this.irisMat.color.setHex(0x00ff88);
     }
 
-    // Camera Gaze Tracking: eye looks toward direction camera is facing
     if (cameraAngle !== undefined) {
       let diff = cameraAngle - this.mesh.rotation.y;
       while (diff > Math.PI) diff -= Math.PI * 2;
       while (diff < -Math.PI) diff += Math.PI * 2;
 
-      // Smooth horizontal gaze offset
       const lookOffsetX = Math.max(-0.12, Math.min(0.12, Math.sin(diff) * 0.12));
-      // Smooth vertical gaze offset based on camera pitch
       const lookOffsetY = Math.max(-0.08, Math.min(0.08, Math.sin(cameraPitch || 0) * 0.08));
 
       this.eyeMesh.position.x = lookOffsetX;
       this.eyeMesh.position.y = 0.35 + lookOffsetY;
       this.pupilMesh.position.x = lookOffsetX * 1.25;
       this.pupilMesh.position.y = 0.35 + lookOffsetY * 1.25;
+      if (this.eyeHalo) {
+        this.eyeHalo.position.x = lookOffsetX;
+        this.eyeHalo.position.y = 0.35 + lookOffsetY;
+      }
     }
 
-    // Blink timer (blinks every 3.5 - 6 seconds)
     this.blinkTimer += delta;
     if (this.blinkTimer > 4.2) {
       this.isBlinking = true;
-      this.eyelid.scale.y = 1.05; // Closed
+      this.eyelid.scale.y = 1.05;
       if (this.blinkTimer > 4.38) {
         this.isBlinking = false;
-        this.eyelid.scale.y = 0.05; // Open
+        this.eyelid.scale.y = 0.05;
         this.blinkTimer = (Math.random() - 0.5) * 1.5;
       }
     }
@@ -382,5 +485,17 @@ export class RobotGardener {
     });
 
     this.thrusterParticles.geometry.attributes.position.needsUpdate = true;
+  }
+
+  reset() {
+    this.position.set(-6.8, 1.2, 0);
+    this.velocity.set(0, 0, 0);
+    this.isDashing = false;
+    this.isGrounded = false;
+    this.currentGroundY = 0.9;
+    this.tilt = { x: 0, z: 0 };
+    this.squash = { y: 1.0, xz: 1.0 };
+    this.mesh.position.copy(this.position);
+    this.mesh.rotation.set(0, 0, 0);
   }
 }

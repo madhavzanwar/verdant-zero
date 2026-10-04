@@ -241,6 +241,284 @@ export class AudioManager {
     });
   }
 
+  // 6. Threat Audio: Purge Drone Wave Alert
+  playDroneAlert() {
+    if (!this.ctx || this.ctx.state !== 'running') return;
+    const t = this.ctx.currentTime;
+
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(140, t);
+    osc.frequency.exponentialRampToValueAtTime(70, t + 0.8);
+
+    gain.gain.setValueAtTime(0.35, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.85);
+
+    osc.connect(gain);
+    gain.connect(this.masterGain);
+    osc.start(t);
+    osc.stop(t + 0.9);
+  }
+
+  // 7. Water Droplet Collection Chime
+  playWaterCollect() {
+    if (!this.ctx || this.ctx.state !== 'running') return;
+    const t = this.ctx.currentTime;
+
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(587.33, t); // D5
+    osc.frequency.exponentialRampToValueAtTime(1174.66, t + 0.2); // D6
+
+    gain.gain.setValueAtTime(0.25, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.28);
+
+    osc.connect(gain);
+    gain.connect(this.masterGain);
+    osc.start(t);
+    osc.stop(t + 0.3);
+  }
+
+  // 8. Denied Planting Sound (Empty Water / Invalid Site)
+  playDeniedSound() {
+    if (!this.ctx || this.ctx.state !== 'running') return;
+    const t = this.ctx.currentTime;
+
+    [0, 0.1].forEach(offset => {
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(120, t + offset);
+
+      gain.gain.setValueAtTime(0.18, t + offset);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + offset + 0.08);
+
+      osc.connect(gain);
+      gain.connect(this.masterGain);
+      osc.start(t + offset);
+      osc.stop(t + offset + 0.09);
+    });
+  }
+
+  // 9. Light Pulse Crystal Expansion Sound
+  playLightPulse() {
+    if (!this.ctx || this.ctx.state !== 'running') return;
+    const t = this.ctx.currentTime;
+
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    const filter = this.ctx.createBiquadFilter();
+
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(300, t);
+    filter.frequency.exponentialRampToValueAtTime(2400, t + 0.5);
+    filter.Q.setValueAtTime(4.0, t);
+
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(180, t);
+    osc.frequency.exponentialRampToValueAtTime(440, t + 0.5);
+
+    gain.gain.setValueAtTime(0.35, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
+
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.masterGain);
+    osc.start(t);
+    osc.stop(t + 0.65);
+  }
+
+  // 10. Acid Rain Warning & Ambient Sizzle
+  playAcidRainWarning() {
+    if (!this.ctx || this.ctx.state !== 'running') return;
+    const t = this.ctx.currentTime;
+
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(480, t);
+    osc.frequency.linearRampToValueAtTime(320, t + 0.6);
+
+    gain.gain.setValueAtTime(0.2, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.65);
+
+    osc.connect(gain);
+    gain.connect(this.masterGain);
+    osc.start(t);
+    osc.stop(t + 0.7);
+  }
+
+  startAcidRainSound() {
+    if (!this.ctx || this.acidGain) return;
+    try {
+      const bufferSize = this.ctx.sampleRate * 2;
+      const noiseBuffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+      const out = noiseBuffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) out[i] = (Math.random() * 2 - 1) * 0.4;
+
+      const whiteNoise = this.ctx.createBufferSource();
+      whiteNoise.buffer = noiseBuffer;
+      whiteNoise.loop = true;
+
+      const filter = this.ctx.createBiquadFilter();
+      filter.type = 'highpass';
+      filter.frequency.setValueAtTime(2800, this.ctx.currentTime);
+
+      this.acidGain = this.ctx.createGain();
+      this.acidGain.gain.setValueAtTime(0.001, this.ctx.currentTime);
+      this.acidGain.gain.linearRampToValueAtTime(0.22, this.ctx.currentTime + 1.0);
+
+      whiteNoise.connect(filter);
+      filter.connect(this.acidGain);
+      this.acidGain.connect(this.masterGain);
+      whiteNoise.start();
+      this.acidNoiseSource = whiteNoise;
+    } catch (e) {}
+  }
+
+  stopAcidRainSound() {
+    if (this.acidGain && this.ctx) {
+      this.acidGain.gain.linearRampToValueAtTime(0.001, this.ctx.currentTime + 1.0);
+      setTimeout(() => {
+        if (this.acidNoiseSource) {
+          try { this.acidNoiseSource.stop(); } catch(e) {}
+          this.acidNoiseSource = null;
+        }
+        this.acidGain = null;
+      }, 1100);
+    }
+  }
+
+  // 11. Player Hit Sound
+  playPlayerHit() {
+    if (!this.ctx || this.ctx.state !== 'running') return;
+    const t = this.ctx.currentTime;
+
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(95, t);
+    osc.frequency.exponentialRampToValueAtTime(35, t + 0.2);
+
+    gain.gain.setValueAtTime(0.25, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+
+    osc.connect(gain);
+    gain.connect(this.masterGain);
+    osc.start(t);
+    osc.stop(t + 0.25);
+  }
+
+  // 12. Combo Multiplier Chime (Rises in pitch: C5, E5, G5, A5, C6)
+  playComboChime(comboLevel = 1) {
+    if (!this.ctx || this.ctx.state !== 'running') return;
+    const t = this.ctx.currentTime;
+
+    const notes = [523.25, 659.25, 783.99, 880.00, 1046.50];
+    const pitch = notes[Math.min(notes.length - 1, Math.max(0, comboLevel - 1))];
+
+    // Primary crystal sine
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(pitch, t);
+    osc.frequency.exponentialRampToValueAtTime(pitch * 1.02, t + 0.35);
+
+    gain.gain.setValueAtTime(0.3, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
+
+    osc.connect(gain);
+    gain.connect(this.masterGain);
+    osc.start(t);
+    osc.stop(t + 0.42);
+
+    // Harmonic sparkle overtone
+    const osc2 = this.ctx.createOscillator();
+    const gain2 = this.ctx.createGain();
+    osc2.type = 'triangle';
+    osc2.frequency.setValueAtTime(pitch * 2, t);
+
+    gain2.gain.setValueAtTime(0.12, t);
+    gain2.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+
+    osc2.connect(gain2);
+    gain2.connect(this.masterGain);
+    osc2.start(t);
+    osc2.stop(t + 0.28);
+  }
+
+  // 13. Milestone Celebration Sound (+8s Time Bonus Arpeggio)
+  playMilestoneCelebration() {
+    if (!this.ctx || this.ctx.state !== 'running') return;
+    const t = this.ctx.currentTime;
+    const freqs = [523.25, 659.25, 783.99, 1046.50]; // C5, E5, G5, C6
+
+    freqs.forEach((freq, idx) => {
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, t + idx * 0.08);
+
+      gain.gain.setValueAtTime(0.001, t + idx * 0.08);
+      gain.gain.linearRampToValueAtTime(0.25, t + idx * 0.08 + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + idx * 0.08 + 0.45);
+
+      osc.connect(gain);
+      gain.connect(this.masterGain);
+      osc.start(t + idx * 0.08);
+      osc.stop(t + idx * 0.08 + 0.48);
+    });
+  }
+
+  // 14. Game Over Sound (Victory or Defeat)
+  playGameOverSound(isVictory = false) {
+    if (!this.ctx || this.ctx.state !== 'running') return;
+    const t = this.ctx.currentTime;
+
+    if (isVictory) {
+      // Shimmering radiant triad
+      [523.25, 659.25, 783.99, 1046.50, 1318.51].forEach((freq, i) => {
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, t + i * 0.1);
+
+        gain.gain.setValueAtTime(0.001, t + i * 0.1);
+        gain.gain.linearRampToValueAtTime(0.2, t + i * 0.1 + 0.05);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + i * 0.1 + 1.2);
+
+        osc.connect(gain);
+        gain.connect(this.masterGain);
+        osc.start(t + i * 0.1);
+        osc.stop(t + i * 0.1 + 1.3);
+      });
+    } else {
+      // Somber deep decaying bell
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(82.4, t); // E2
+      osc.frequency.exponentialRampToValueAtTime(41.2, t + 1.5);
+
+      gain.gain.setValueAtTime(0.35, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 1.8);
+
+      const filter = this.ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(240, t);
+      filter.frequency.linearRampToValueAtTime(70, t + 1.5);
+
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.masterGain);
+
+      osc.start(t);
+      osc.stop(t + 1.9);
+    }
+  }
+
   destroy() {
     if (this.thunderTimer) clearTimeout(this.thunderTimer);
     if (this.ctx) this.ctx.close();

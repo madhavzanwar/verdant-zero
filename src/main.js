@@ -9,70 +9,100 @@ import { CityGenerator } from './world/CityGenerator.js';
 import { WeatherAndTraffic } from './world/WeatherAndTraffic.js';
 import { RobotGardener } from './entities/RobotGardener.js';
 import { PlantSystem } from './entities/PlantSystem.js';
+import { createProceduralEnvMap } from './world/EnvironmentMap.js';
+import { SmogSystem } from './systems/SmogSystem.js';
+import { DroneSystem } from './systems/DroneSystem.js';
+import { SurvivalManager } from './systems/SurvivalManager.js';
+import { ScoreManager } from './systems/ScoreManager.js';
 
 /**
  * Verdant Zero Application Bootstrap
  * - 360° Mouse Look with Pointer Lock
  * - WASD & Arrow Key Navigation
- * - Pause Menu & Sensitivity / Invert-Y Settings
+ * - Pause Menu & Sensitivity / Invert-Y / Brightness Settings
+ * - Part B: Smog Rot, Purge Drones, Water Resources, Acid Rain & Light Pulse
+ * - Part C: Scoring, Combo Multiplier, Risk Bonus, Timer & Milestones, Game Over & Instant Restart
  */
 class VerdantZeroApp {
   constructor() {
     this.canvas = document.getElementById('webgl-canvas');
     this.isPaused = false;
     this.isPointerLocked = false;
+    this.gameTime = 0.0;
 
-    // 1. Initialize Scene & Atmospheric Lighting
+    // 1. Initialize Engine & Canvas First
+    this.engine = new Engine(this.canvas);
+
+    // 2. Initialize Scene, Fog & Horizon Dusk Color
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x0a0c18); // Dark purple-blue dusk
-    this.scene.fog = new THREE.FogExp2(0x0a0c18, 0.0048); // Exponential squared fog showing all depth layers
+    this.scene.background = new THREE.Color(0x0a0c1e); // Dark indigo dusk
+    this.scene.fog = new THREE.FogExp2(0x2a1650, 0.0028); // Horizon-matching purple fog, visible up to 400m
 
-    // 2. Camera Setup
+    // 3. PMREM Environment Map for Colorful Neon Reflections on Concrete, Asphalt & Robot
+    const envMap = createProceduralEnvMap(this.engine.renderer);
+    this.scene.environment = envMap;
+
+    // 4. Camera Setup (FOV 60, Far 2000)
     this.camera = new THREE.PerspectiveCamera(
-      50,
+      60,
       window.innerWidth / window.innerHeight,
       0.1,
-      850
+      2000
     );
 
-    // 3. Ambient & Overcast Directional Dusk Lighting
-    const ambientLight = new THREE.AmbientLight(0x2d3448, 2.2);
-    this.scene.add(ambientLight);
+    // 5. Real Scene Lights (Strictly under 8 total real lights)
+    // 5a. Hemisphere light (purple-blue sky, dark teal ground at strong intensity)
+    const hemiLight = new THREE.HemisphereLight(0x3e2570, 0x08222b, 2.4);
+    this.scene.add(hemiLight);
 
-    const duskKeyLight = new THREE.DirectionalLight(0x3e4d6a, 2.4);
-    duskKeyLight.position.set(60, 150, -40);
-    this.scene.add(duskKeyLight);
+    // 5b. Cool blue moonlight directional light
+    const moonLight = new THREE.DirectionalLight(0x7590d4, 1.8);
+    moonLight.position.set(80, 160, -60);
+    this.scene.add(moonLight);
 
-    const horizonRimLight = new THREE.DirectionalLight(0x633394, 1.2);
-    horizonRimLight.position.set(-80, 50, 60);
-    this.scene.add(horizonRimLight);
+    // (The other 4 point lights follow the player robot: seed, cyan rim, magenta rim, ground bounce)
 
-    // 4. Procedural City & Atmospheric Weather
+    // 6. Procedural City & Atmospheric Weather
     this.city = new CityGenerator(this.scene);
     this.weather = new WeatherAndTraffic(this.scene);
 
-    // 5. Core Subsystems
-    this.engine = new Engine(this.canvas);
+    // 7. Core Subsystems
     this.audio = new AudioManager();
     this.cameraController = new CameraController(this.camera, this.city.buildingColliders);
 
-    // 6. Robot Gardener (Player) & Planting System
-    this.robot = new RobotGardener(this.scene, this.city.buildingColliders);
-    this.plantSystem = new PlantSystem(this.scene, this.city, this.audio);
+    // 8. Part C Score & Game State Manager
+    this.scoreManager = new ScoreManager(this.audio);
+    this.scoreManager.onRecordTimelapse = (data) => this.handleTimelapseRecord(data);
+    this.scoreManager.onGameOver = () => {
+      this.cameraController.setGameOverMode(this.robot.position);
+      if (document.pointerLockElement) {
+        try { document.exitPointerLock?.(); } catch (e) {}
+      }
+    };
 
-    // 7. Input & Mouse Look State
+    // 9. Robot Gardener (Player) & Planting System
+    this.robot = new RobotGardener(this.scene, this.city.buildingColliders);
+    this.plantSystem = new PlantSystem(this.scene, this.city, this.audio, this.scoreManager);
+
+    // 10. Threat & Survival Subsystems
+    this.smogSystem = new SmogSystem(this.scene, this.city.buildingColliders);
+    this.droneSystem = new DroneSystem(this.scene, this.audio);
+    this.survival = new SurvivalManager(this.scene, this.city.buildingColliders, this.audio, this.scoreManager);
+
+    // 11. Input & Mouse Look State
     this.keys = new Map();
     this.initInput();
     this.initMouseLook();
 
-    // 8. Post-Processing Pipeline
+    // 12. Post-Processing Pipeline
     this.engine.initPostProcessing(this.scene, this.camera);
 
-    // 9. Minimal Title Screen & Pause Menu UI Bindings
+    // 13. Minimal Title Screen, HUD & Pause Menu UI Bindings
     this.initUI();
 
-    // 10. Start 60 FPS Engine Loop
+    // 14. Start 60 FPS Engine Loop
     this.engine.start((delta, time) => this.update(delta, time));
+    window.__vz_app = this;
   }
 
   initInput() {
@@ -86,11 +116,33 @@ class VerdantZeroApp {
       this.keys.set(e.code, true);
 
       // Plant seed interaction on KeyE
-      if (e.code === 'KeyE' && !this.isPaused) {
+      if (e.code === 'KeyE' && !this.isPaused && this.scoreManager.state === 'PLAYING') {
         const spot = this.plantSystem.checkProximity(this.robot.position);
         if (spot) {
-          this.plantSystem.plant(spot);
+          if (this.survival.canAffordPlant()) {
+            this.survival.consumeWaterForSeed();
+            const inSmog = this.smogSystem.getDensity(spot.data.x, spot.data.z) > 0.08;
+            this.plantSystem.plant(spot, inSmog);
+          } else {
+            this.survival.notifyDeniedPlanting(this.robot);
+            if (spot.mesh && spot.mesh.material) {
+              spot.mesh.material.color.setHex(0xff2222);
+              setTimeout(() => {
+                if (!spot.isPlanted) spot.mesh.material.color.setHex(0x00ff88);
+              }, 450);
+            }
+          }
         }
+      }
+
+      // Light Pulse ability on KeyQ
+      if (e.code === 'KeyQ' && !this.isPaused && this.cameraController.mode === 'GAMEPLAY') {
+        this.survival.triggerLightPulse(this.robot.position, this.smogSystem, this.droneSystem);
+      }
+
+      // Instant Restart on KeyR
+      if (e.code === 'KeyR' && (this.cameraController.mode === 'GAMEPLAY' || this.scoreManager.state === 'GAMEOVER')) {
+        this.restartGame();
       }
 
       // Escape key opens/closes pause menu
@@ -99,6 +151,10 @@ class VerdantZeroApp {
         if (dialogHow && dialogHow.classList.contains('open')) {
           dialogHow.classList.remove('open');
           dialogHow.setAttribute('aria-hidden', 'true');
+          return;
+        }
+
+        if (this.scoreManager.state === 'GAMEOVER') {
           return;
         }
 
@@ -127,12 +183,20 @@ class VerdantZeroApp {
   }
 
   initMouseLook() {
-    // 1. Pointer Lock on Click during Gameplay
+    // 1. Pointer Lock on Left Click during Gameplay
     this.canvas.addEventListener('click', () => {
       if (this.cameraController.mode === 'GAMEPLAY' && !this.isPaused) {
         if (!document.pointerLockElement) {
           this.canvas.requestPointerLock?.();
         }
+      }
+    });
+
+    // Right Click for Light Pulse
+    window.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      if (this.cameraController.mode === 'GAMEPLAY' && !this.isPaused) {
+        this.survival.triggerLightPulse(this.robot.position, this.smogSystem, this.droneSystem);
       }
     });
 
@@ -179,6 +243,23 @@ class VerdantZeroApp {
     const sliderSens = document.getElementById('setting-sensitivity');
     const sensValDisplay = document.getElementById('sensitivity-value');
     const checkInvertY = document.getElementById('setting-invert-y');
+    const sliderBright = document.getElementById('setting-brightness');
+    const brightValDisplay = document.getElementById('brightness-value');
+
+    // Initialize Brightness from localStorage
+    const savedBrightness = parseFloat(localStorage.getItem('vz_brightness') || '1.0');
+    this.engine.setBrightness(savedBrightness);
+    if (sliderBright && brightValDisplay) {
+      sliderBright.value = savedBrightness.toString();
+      brightValDisplay.textContent = `${savedBrightness.toFixed(1)}x`;
+
+      sliderBright.addEventListener('input', (e) => {
+        const val = parseFloat(e.target.value);
+        this.engine.setBrightness(val);
+        localStorage.setItem('vz_brightness', val.toString());
+        brightValDisplay.textContent = `${val.toFixed(1)}x`;
+      });
+    }
 
     // Initialize Settings from CameraController
     if (sliderSens && sensValDisplay) {
@@ -207,6 +288,23 @@ class VerdantZeroApp {
       });
     }
 
+    // Pause Dialog Buttons
+    const btnPauseRestart = document.getElementById('btn-pause-restart');
+    if (btnPauseRestart) {
+      btnPauseRestart.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.restartGame();
+      });
+    }
+
+    const btnPauseMenu = document.getElementById('btn-pause-menu');
+    if (btnPauseMenu) {
+      btnPauseMenu.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.returnToMainMenu();
+      });
+    }
+
     // "Play" Button Click
     if (btnPlay) {
       btnPlay.addEventListener('click', () => {
@@ -217,6 +315,9 @@ class VerdantZeroApp {
           titleScreenEl.classList.add('hidden');
         }
 
+        // Start game state in ScoreManager
+        this.scoreManager.startGame();
+
         // Transition camera from Title orbit to Robot third-person follow
         this.cameraController.startGameplayTransition(this.robot.position);
 
@@ -225,6 +326,22 @@ class VerdantZeroApp {
           this.canvas.requestPointerLock?.();
         }, 1100);
       });
+    }
+
+    // Game Over Screen Buttons
+    const btnGoRestart = document.getElementById('btn-gameover-restart');
+    if (btnGoRestart) {
+      btnGoRestart.addEventListener('click', () => this.restartGame());
+    }
+
+    const btnGoMenu = document.getElementById('btn-gameover-menu');
+    if (btnGoMenu) {
+      btnGoMenu.addEventListener('click', () => this.returnToMainMenu());
+    }
+
+    const btnTimelapse = document.getElementById('btn-timelapse-hook');
+    if (btnTimelapse) {
+      btnTimelapse.addEventListener('click', () => this.handleTimelapseRecord());
     }
 
     // "How to play" Dialog
@@ -243,11 +360,12 @@ class VerdantZeroApp {
       });
     }
 
-    if (dialogHow) {
-      dialogHow.addEventListener('click', (e) => {
-        if (e.target === dialogHow) {
-          dialogHow.classList.remove('open');
-          dialogHow.setAttribute('aria-hidden', 'true');
+    // Pulse button click in HUD
+    const pulseBtn = document.getElementById('pulse-ability');
+    if (pulseBtn) {
+      pulseBtn.addEventListener('click', () => {
+        if (this.cameraController.mode === 'GAMEPLAY' && !this.isPaused && this.scoreManager.state === 'PLAYING') {
+          this.survival.triggerLightPulse(this.robot.position, this.smogSystem, this.droneSystem);
         }
       });
     }
@@ -255,6 +373,7 @@ class VerdantZeroApp {
 
   openPauseMenu() {
     this.isPaused = true;
+    if (this.scoreManager) this.scoreManager.pause();
     const dialogPause = document.getElementById('dialog-pause');
     if (dialogPause) {
       dialogPause.classList.add('open');
@@ -264,13 +383,14 @@ class VerdantZeroApp {
 
   closePauseMenu() {
     this.isPaused = false;
+    if (this.scoreManager) this.scoreManager.resume();
     const dialogPause = document.getElementById('dialog-pause');
     if (dialogPause) {
       dialogPause.classList.remove('open');
       dialogPause.setAttribute('aria-hidden', 'true');
     }
     // Re-lock pointer
-    if (this.cameraController.mode === 'GAMEPLAY') {
+    if (this.cameraController.mode === 'GAMEPLAY' && this.scoreManager.state === 'PLAYING') {
       try {
         this.canvas.requestPointerLock?.();
       } catch (e) {
@@ -279,8 +399,102 @@ class VerdantZeroApp {
     }
   }
 
+  restartGame() {
+    this.isPaused = false;
+    const dialogPause = document.getElementById('dialog-pause');
+    if (dialogPause) {
+      dialogPause.classList.remove('open');
+      dialogPause.setAttribute('aria-hidden', 'true');
+    }
+    const modalGameOver = document.getElementById('modal-gameover');
+    if (modalGameOver) {
+      modalGameOver.classList.remove('open');
+      modalGameOver.setAttribute('aria-hidden', 'true');
+    }
+
+    const titleScreenEl = document.getElementById('title-screen');
+    if (titleScreenEl) titleScreenEl.classList.add('hidden');
+
+    // Instant restart under 1s reusing all geometry
+    this.robot.reset();
+    this.plantSystem.reset();
+    this.survival.reset();
+    this.droneSystem.reset();
+    this.smogSystem.reset();
+    this.cameraController.resetGameplay(this.robot.position);
+    this.scoreManager.startGame();
+
+    try {
+      this.canvas.requestPointerLock?.();
+    } catch (e) {}
+  }
+
+  returnToMainMenu() {
+    this.isPaused = false;
+    const dialogPause = document.getElementById('dialog-pause');
+    if (dialogPause) {
+      dialogPause.classList.remove('open');
+      dialogPause.setAttribute('aria-hidden', 'true');
+    }
+    const modalGameOver = document.getElementById('modal-gameover');
+    if (modalGameOver) {
+      modalGameOver.classList.remove('open');
+      modalGameOver.setAttribute('aria-hidden', 'true');
+    }
+
+    const titleScreenEl = document.getElementById('title-screen');
+    if (titleScreenEl) {
+      titleScreenEl.classList.remove('hidden');
+    }
+
+    this.cameraController.returnToTitle();
+    this.scoreManager.state = 'MENU';
+    this.scoreManager.reset();
+    this.robot.reset();
+    this.plantSystem.reset();
+    this.survival.reset();
+    this.droneSystem.reset();
+    this.smogSystem.reset();
+
+    if (document.pointerLockElement) {
+      try { document.exitPointerLock?.(); } catch (e) {}
+    }
+  }
+
+  handleTimelapseRecord(runData = null) {
+    const data = runData || {
+      score: this.scoreManager.score,
+      reclaimed: this.scoreManager.reclaimedPercentage,
+      timeSurvived: this.scoreManager.timeSurvived
+    };
+    console.log('Cinematic time-lapse recording hook triggered:', data);
+    if (window.__vz_onRecordTimelapse) {
+      window.__vz_onRecordTimelapse(data);
+    }
+    const btn = document.getElementById('btn-timelapse-hook');
+    if (btn) {
+      const originalText = btn.textContent;
+      btn.textContent = 'Recording Queued...';
+      setTimeout(() => { btn.textContent = originalText; }, 2000);
+    }
+  }
+
   update(delta, time) {
-    if (this.isPaused) return;
+    // 0. Handle Game Over State
+    if (this.scoreManager.state === 'GAMEOVER') {
+      if (this.cameraController.mode !== 'GAMEOVER') {
+        this.cameraController.setGameOverMode(this.robot.position);
+        if (document.pointerLockElement) {
+          try { document.exitPointerLock?.(); } catch (e) {}
+        }
+      }
+      this.cameraController.update(delta, time, this.robot);
+      this.city.update(delta, time);
+      this.weather.update(delta, time);
+      return;
+    }
+
+    if (this.isPaused || this.scoreManager.state === 'PAUSED') return;
 
     // 1. Update City & Atmospheric Details
     this.city.update(delta, time);
@@ -300,6 +514,43 @@ class VerdantZeroApp {
 
     // 5. Update Camera Controller with Mouse Look
     this.cameraController.update(delta, time, this.robot);
+
+    // 6. Update Part B & Part C Subsystems (Only during active gameplay)
+    if (this.cameraController.mode === 'GAMEPLAY' && this.scoreManager.state === 'PLAYING') {
+      this.gameTime += delta;
+
+      // 6a. Update Score, Timer Countdown, Combo Draining & Animations
+      this.scoreManager.update(delta);
+
+      if (this.scoreManager.state === 'GAMEOVER') {
+        this.cameraController.setGameOverMode(this.robot.position);
+        if (document.pointerLockElement) {
+          try { document.exitPointerLock?.(); } catch (e) {}
+        }
+        return;
+      }
+
+      // 6b. Smog Simulation & Vine interactions
+      this.smogSystem.update(delta, this.gameTime, this.plantSystem.activeVines, this.robot.position);
+
+      // 6c. Purge Drone Wave Threats & Laser Burning
+      const droneUpdate = this.droneSystem.update(delta, this.gameTime, this.plantSystem.activeVines, this.robot.position, this.camera);
+      if (droneUpdate && droneUpdate.playerDamage > 0) {
+        this.survival.applyDamage(droneUpdate.playerDamage);
+      }
+
+      // 6d. Survival Resource Loop (Health regen, water drops, acid rain, HUD)
+      this.survival.update(
+        delta,
+        this.gameTime,
+        this.robot,
+        this.smogSystem,
+        this.droneSystem,
+        this.weather,
+        this.plantSystem.activeVines,
+        this.camera
+      );
+    }
   }
 }
 

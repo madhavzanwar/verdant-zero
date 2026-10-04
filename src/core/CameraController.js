@@ -35,13 +35,13 @@ export class CameraController {
     this.maxPitch = 1.18;  // Looking up at sky & towering skyscrapers (~ +68 deg)
 
     // Distance & Spring Damping
-    this.baseDistance = 5.4;
-    this.currentDistance = 5.4;
+    this.baseDistance = 4.8;
+    this.currentDistance = 4.8;
     this.damping = 12.0;
 
     // Camera FOV
-    this.baseFov = 50;
-    this.dashFov = 57;
+    this.baseFov = 60;
+    this.dashFov = 68;
 
     // Title Camera Parameters
     this.titleTime = 0;
@@ -120,6 +120,34 @@ export class CameraController {
     this.yaw = 0.0;
     this.targetPitch = 0.22;
     this.pitch = 0.22;
+    this.currentDistance = this.baseDistance;
+  }
+
+  setGameOverMode(robotPos) {
+    this.mode = 'GAMEOVER';
+    this.gameOverDistance = this.baseDistance;
+    this.targetGameOverDistance = 16.0;
+    this.gameOverPitch = this.pitch;
+    this.targetGameOverPitch = 0.55;
+  }
+
+  returnToTitle() {
+    this.mode = 'TITLE';
+    this.titleTime = 4.0; // Already in gentle drift
+  }
+
+  resetGameplay(robotPos) {
+    this.mode = 'GAMEPLAY';
+    this.targetYaw = 0.0;
+    this.yaw = 0.0;
+    this.targetPitch = 0.22;
+    this.pitch = 0.22;
+    this.currentDistance = this.baseDistance;
+
+    const targetLook = robotPos.clone().add(new THREE.Vector3(0, 0.72, 0));
+    const offset = this.calculateOrbitalOffset(this.yaw, this.pitch, this.baseDistance);
+    this.camera.position.copy(targetLook).add(offset);
+    this.camera.lookAt(targetLook);
   }
 
   update(delta, time, robot) {
@@ -129,7 +157,25 @@ export class CameraController {
       this.updateTransition(delta, robot);
     } else if (this.mode === 'GAMEPLAY') {
       this.updateGameplayCamera(delta, robot);
+    } else if (this.mode === 'GAMEOVER') {
+      this.updateGameOverCamera(delta, robot);
     }
+  }
+
+  updateGameOverCamera(delta, robot) {
+    // Slowly pull camera back and tilt upward for contemplative city view
+    this.gameOverDistance += (this.targetGameOverDistance - this.gameOverDistance) * delta * 0.8;
+    this.gameOverPitch += (this.targetGameOverPitch - this.gameOverPitch) * delta * 0.8;
+
+    const targetLook = robot.position.clone().add(new THREE.Vector3(0, 1.2, 0));
+    const offset = this.calculateOrbitalOffset(this.yaw, this.gameOverPitch, this.gameOverDistance);
+    let idealPos = targetLook.clone().add(offset);
+
+    idealPos = this.preventBuildingClipping(targetLook, idealPos);
+    idealPos.y = Math.max(1.8, idealPos.y);
+
+    this.camera.position.lerp(idealPos, Math.min(1.0, delta * 3.5));
+    this.camera.lookAt(targetLook);
   }
 
   updateTitleCamera(delta, time) {
@@ -187,7 +233,7 @@ export class CameraController {
 
     return new THREE.Vector3(
       sinYaw * cosPitch * distance,
-      sinPitch * distance + 0.6,
+      sinPitch * distance + 0.92,
       cosYaw * cosPitch * distance
     );
   }
@@ -198,8 +244,8 @@ export class CameraController {
     this.yaw += (this.targetYaw - this.yaw) * dampFactor;
     this.pitch += (this.targetPitch - this.pitch) * dampFactor;
 
-    // 2. Center of focus on robot
-    const targetLook = robot.position.clone().add(new THREE.Vector3(0, 1.1, 0));
+    // 2. Center of focus on robot (placed so robot rests in lower center of view)
+    const targetLook = robot.position.clone().add(new THREE.Vector3(0, 0.72, 0));
     // Subtle look-ahead in robot velocity direction
     targetLook.addScaledVector(robot.velocity, 0.04);
 

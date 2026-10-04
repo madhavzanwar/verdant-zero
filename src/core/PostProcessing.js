@@ -19,10 +19,10 @@ const CinematicAtmosphereShader = {
     tDiffuse: { value: null },
     uTime: { value: 0 },
     uResolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
-    uGrainIntensity: { value: 0.022 },
-    uVignetteDarkness: { value: 0.65 },
-    uVignetteOffset: { value: 1.1 },
-    uChromaIntensity: { value: 0.0022 }
+    uGrainIntensity: { value: 0.014 },
+    uVignetteDarkness: { value: 0.32 },
+    uVignetteOffset: { value: 1.20 },
+    uChromaIntensity: { value: 0.0018 }
   },
   vertexShader: /* glsl */ `
     varying vec2 vUv;
@@ -105,13 +105,12 @@ export class PostProcessingManager {
     this.composer.addPass(this.renderPass);
 
     // 2. Restrained UnrealBloomPass:
-    // Threshold 0.90: Only genuine high-intensity emissive meshes glow.
-    // Zero smear on dark buildings or sky.
+    // Threshold 0.80: Emissive neons and glowing windows bloom smoothly.
     this.bloomPass = new UnrealBloomPass(
       new THREE.Vector2(width, height),
-      0.45, // Strength: restrained, clean glow
-      0.35, // Radius: tight, focused
-      0.90  // Threshold: high, prevents washed out surfaces
+      0.50, // Strength: moderate, clean glow
+      0.60, // Radius: 0.60
+      0.80  // Threshold: 0.80
     );
     this.composer.addPass(this.bloomPass);
 

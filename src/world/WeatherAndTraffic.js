@@ -51,13 +51,27 @@ export class WeatherAndTraffic {
     rainGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
 
     const rainMat = new THREE.LineBasicMaterial({
-      color: 0x6b82a6,
+      color: 0xa8c4e8,
       transparent: true,
-      opacity: 0.22
+      opacity: 0.16,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
     });
 
     this.rainLines = new THREE.LineSegments(rainGeo, rainMat);
     this.scene.add(this.rainLines);
+  }
+
+  setRainAcidic(isAcidic) {
+    if (this.rainLines && this.rainLines.material) {
+      if (isAcidic) {
+        this.rainLines.material.color.setHex(0xb2d92b);
+        this.rainLines.material.opacity = 0.28;
+      } else {
+        this.rainLines.material.color.setHex(0xa8c4e8);
+        this.rainLines.material.opacity = 0.16;
+      }
+    }
   }
 
   initSplashRipples() {

@@ -3,12 +3,13 @@ import { createBuildingMaterial } from './BuildingShader.js';
 
 /**
  * Procedural Cyberpunk Metropolis Generator
- * - 350+ buildings in 3 depth layers (Close, Mid, Far giant silhouettes)
- * - Varied building architectures: stepped tops, rooftop vents, water tanks, antenna spires
- * - Abstract glyph neon signs & holographic billboards
- * - Dim moon, moving cloud sheet, volumetric street light shafts & searchlights
- * - Wet reflective street plane with neon reflection smearing
- * - Collision bounding boxes exported for player movement
+ * - 360+ towers in 3 depth layers with real materials and silhouette fresnel
+ * - Full gradient sky dome (indigo zenith -> purple mid-sky -> glowing magenta & orange horizon)
+ * - Big visible moon/planet with atmospheric halo
+ * - Layered low clouds lit from below
+ * - Wet reflective dark asphalt street with neon reflections, puddles, lane markings, crosswalks
+ * - Cyberpunk street lamps with downward light cones and neon ground light spill decals
+ * - Volumetric light shafts & sweeping sky searchlight cones
  */
 
 export class CityGenerator {
@@ -29,18 +30,19 @@ export class CityGenerator {
     this.buildSkyAtmosphere();
     this.buildCityLayers();
     this.buildRooftopDetails();
+    this.buildStreetLampsAndDetails();
     this.buildNeonGlyphSigns();
     this.buildVolumetricLightShafts();
     this.setupPlantingSpots();
   }
 
   buildGroundAndStreets() {
-    // Wet reflective street level
-    const groundGeo = new THREE.PlaneGeometry(800, 800);
+    // 1. Wet reflective dark asphalt street plane
+    const groundGeo = new THREE.PlaneGeometry(900, 900);
     const groundMat = new THREE.MeshStandardMaterial({
-      color: 0x090b12,
-      roughness: 0.18, // High wet reflectivity
-      metalness: 0.85
+      color: 0x161a29,       // Wet dark asphalt (never pure black)
+      roughness: 0.22,       // High wet reflectivity picks up environment map
+      metalness: 0.65
     });
 
     const ground = new THREE.Mesh(groundGeo, groundMat);
@@ -48,110 +50,242 @@ export class CityGenerator {
     ground.position.y = 0;
     ground.receiveShadow = false;
     this.scene.add(ground);
+    this.groundMesh = ground;
 
-    // Subtle puddles and street markings plane
-    const streetMarkGeo = new THREE.PlaneGeometry(400, 400);
-    const streetMarkMat = new THREE.MeshBasicMaterial({
-      color: 0x121728,
-      transparent: true,
-      opacity: 0.4
+    // 2. High-reflectivity Puddle Patches
+    const puddleGeo = new THREE.PlaneGeometry(8, 14);
+    const puddleMat = new THREE.MeshStandardMaterial({
+      color: 0x0c0f1e,
+      roughness: 0.04,
+      metalness: 0.95
     });
-    const streetMarks = new THREE.Mesh(streetMarkGeo, streetMarkMat);
-    streetMarks.rotation.x = -Math.PI / 2;
-    streetMarks.position.y = 0.02;
-    this.scene.add(streetMarks);
+
+    const puddlePositions = [
+      { x: -3.5, z: -10, rot: 0.3 },
+      { x: 4.2, z: 8, rot: -0.2 },
+      { x: -2.0, z: 28, rot: 0.5 },
+      { x: 3.0, z: -35, rot: -0.4 },
+      { x: -4.0, z: -60, rot: 0.1 },
+      { x: 2.5, z: 52, rot: -0.3 }
+    ];
+
+    puddlePositions.forEach(p => {
+      const puddle = new THREE.Mesh(puddleGeo, puddleMat);
+      puddle.rotation.x = -Math.PI / 2;
+      puddle.rotation.z = p.rot;
+      puddle.position.set(p.x, 0.015, p.z);
+      this.scene.add(puddle);
+    });
+
+    // 3. Glowing Central Lane Markings (Double Amber Solid Line)
+    const lineGeo = new THREE.PlaneGeometry(0.22, 360);
+    const amberLineMat = new THREE.MeshBasicMaterial({
+      color: 0xffaa22,
+      transparent: true,
+      opacity: 0.85
+    });
+
+    const lineLeft = new THREE.Mesh(lineGeo, amberLineMat);
+    lineLeft.rotation.x = -Math.PI / 2;
+    lineLeft.position.set(-0.25, 0.02, 0);
+    this.scene.add(lineLeft);
+
+    const lineRight = new THREE.Mesh(lineGeo, amberLineMat);
+    lineRight.rotation.x = -Math.PI / 2;
+    lineRight.position.set(0.25, 0.02, 0);
+    this.scene.add(lineRight);
+
+    // 4. Dashed Outer Lane Lines (Cyan Glow)
+    const dashCount = 35;
+    const dashGeo = new THREE.PlaneGeometry(0.2, 3.8);
+    const cyanDashMat = new THREE.MeshBasicMaterial({
+      color: 0x00f0ff,
+      transparent: true,
+      opacity: 0.8
+    });
+
+    for (let i = -dashCount; i <= dashCount; i++) {
+      const z = i * 6.5;
+      const dashL = new THREE.Mesh(dashGeo, cyanDashMat);
+      dashL.rotation.x = -Math.PI / 2;
+      dashL.position.set(-5.0, 0.02, z);
+      this.scene.add(dashL);
+
+      const dashR = new THREE.Mesh(dashGeo, cyanDashMat);
+      dashR.rotation.x = -Math.PI / 2;
+      dashR.position.set(5.0, 0.02, z);
+      this.scene.add(dashR);
+    }
+
+    // 5. Crosswalk Zebra Stripes at Key Intersections
+    const zebraGeo = new THREE.PlaneGeometry(0.65, 4.5);
+    const zebraMat = new THREE.MeshBasicMaterial({
+      color: 0xb5ccf2,
+      transparent: true,
+      opacity: 0.75
+    });
+
+    const crosswalkZ = [-45, 0, 45, 95];
+    crosswalkZ.forEach(cz => {
+      for (let x = -8.5; x <= 8.5; x += 1.4) {
+        if (Math.abs(x) < 0.5) continue; // leave slight gap at center
+        const stripe = new THREE.Mesh(zebraGeo, zebraMat);
+        stripe.rotation.x = -Math.PI / 2;
+        stripe.position.set(x, 0.022, cz);
+        this.scene.add(stripe);
+      }
+    });
   }
 
   buildSkyAtmosphere() {
-    // 1. Huge Dim Moon / Planet behind the clouds
-    const moonGeo = new THREE.SphereGeometry(75, 32, 32);
+    // 1. Full Gradient Sky Dome
+    // Inverted sphere with custom shader: deep indigo zenith -> purple mid-sky -> glowing magenta & orange horizon
+    const skyDomeGeo = new THREE.SphereGeometry(1200, 32, 24);
+    const skyDomeMat = new THREE.ShaderMaterial({
+      side: THREE.BackSide,
+      depthWrite: false,
+      vertexShader: /* glsl */ `
+        varying vec3 vWorldPos;
+        void main() {
+          vec4 worldPos = modelMatrix * vec4(position, 1.0);
+          vWorldPos = worldPos.xyz;
+          gl_Position = projectionMatrix * viewMatrix * worldPos;
+        }
+      `,
+      fragmentShader: /* glsl */ `
+        varying vec3 vWorldPos;
+        void main() {
+          vec3 dir = normalize(vWorldPos);
+          float h = dir.y; // -1 to 1
+
+          // Deep indigo at top
+          vec3 zenith = vec3(0.04, 0.05, 0.16);
+          // Purple-violet mid-sky
+          vec3 midSky = vec3(0.24, 0.07, 0.35);
+          // Glowing neon magenta horizon
+          vec3 horizonMagenta = vec3(0.92, 0.12, 0.50);
+          // Golden warm orange rim
+          vec3 horizonOrange = vec3(1.0, 0.44, 0.16);
+
+          vec3 col;
+          if (h > 0.28) {
+            float t = clamp((h - 0.28) / 0.72, 0.0, 1.0);
+            col = mix(midSky, zenith, t);
+          } else if (h > 0.03) {
+            float t = clamp((h - 0.03) / 0.25, 0.0, 1.0);
+            col = mix(horizonMagenta, midSky, t);
+          } else {
+            float t = clamp((h + 0.15) / 0.18, 0.0, 1.0);
+            col = mix(horizonOrange, horizonMagenta, t);
+          }
+
+          // Azimuthal neon glow accentuating the street axis
+          float az = atan(dir.z, dir.x);
+          float duskSpread = pow(max(0.0, sin(az + 0.9)), 2.8);
+          col += vec3(0.35, 0.12, 0.22) * duskSpread * (1.0 - smoothstep(0.0, 0.4, h));
+
+          gl_FragColor = vec4(col, 1.0);
+        }
+      `
+    });
+
+    const skyDome = new THREE.Mesh(skyDomeGeo, skyDomeMat);
+    this.scene.add(skyDome);
+
+    // 2. Big Visible Moon / Planet with Atmospheric Halo
+    const moonGroup = new THREE.Group();
+    moonGroup.position.set(-170, 220, -320);
+
+    // Moon body
+    const moonGeo = new THREE.SphereGeometry(80, 32, 32);
     const moonMat = new THREE.MeshBasicMaterial({
-      color: 0x24283b,
+      color: 0xc5d4ec,
       transparent: true,
-      opacity: 0.55
+      opacity: 0.88
     });
     const moon = new THREE.Mesh(moonGeo, moonMat);
-    moon.position.set(-180, 240, -320);
-    this.scene.add(moon);
+    moonGroup.add(moon);
 
-    // 2. Layered low cloud sheet with slow movement
+    // Atmospheric halo
+    const haloGeo = new THREE.RingGeometry(80, 130, 32);
+    const haloMat = new THREE.MeshBasicMaterial({
+      color: 0x889ecc,
+      transparent: true,
+      opacity: 0.22,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    });
+    const halo = new THREE.Mesh(haloGeo, haloMat);
+    moonGroup.add(halo);
+
+    this.scene.add(moonGroup);
+
+    // 3. Layered Low Cloud Sheets lit from below by city glow
     const cloudGeo = new THREE.PlaneGeometry(1200, 1200);
     const cloudMat = new THREE.MeshBasicMaterial({
-      color: 0x090a18,
+      color: 0x221236,       // Lit purple from city below
       transparent: true,
-      opacity: 0.35,
+      opacity: 0.38,
       depthWrite: false
     });
 
     this.cloudSheet = new THREE.Mesh(cloudGeo, cloudMat);
     this.cloudSheet.rotation.x = Math.PI / 2;
-    this.cloudSheet.position.set(0, 160, 0);
+    this.cloudSheet.position.set(0, 150, 0);
     this.scene.add(this.cloudSheet);
   }
 
   buildCityLayers() {
-    // Total buildings: 360 buildings in 3 distinct depth layers
     const totalBuildings = 360;
     const boxGeo = new THREE.BoxGeometry(1, 1, 1);
     
-    // InstancedMesh for massive performance: 60fps on laptop
     this.towersMesh = new THREE.InstancedMesh(boxGeo, this.buildingMaterial, totalBuildings);
     const dummy = new THREE.Object3D();
 
     this.buildingPositions = [];
-
     let count = 0;
 
     // ----------------------------------------------------
     // LAYER 1: Close Layer (45 towers immediately around player)
-    // Clear central street canyon along X=0, with towers lining sidewalks
+    // Clear central street canyon along X=0, towers lining sidewalks
     // ----------------------------------------------------
-    // 1. Featured Sanctuary Tower on Left Side of Street (Spot 0 climbs this tower)
+    // Sanctuary Tower on Left Side of Street (Spot 0 climbs this tower)
     dummy.position.set(-18, 24, 0);
-    dummy.scale.set(16, 48, 24);
+    dummy.scale.set(16, 48, 22);
     dummy.updateMatrix();
     this.towersMesh.setMatrixAt(count, dummy.matrix);
-    this.buildingPositions.push({ x: -18, y: 48, z: 0, w: 16, d: 24, layer: 1 });
-    this.buildingColliders.push({ minX: -26, maxX: -10, minZ: -12, maxZ: 12, height: 48 });
+    this.buildingPositions.push({ x: -18, y: 48, z: 0, w: 16, d: 22, layer: 1 });
+    this.buildingColliders.push({ minX: -26, maxX: -10, minZ: -11, maxZ: 11, height: 48 });
     count++;
 
-    // 2. Featured Tower on Right Side of Street
-    dummy.position.set(18, 28, 0);
-    dummy.scale.set(16, 56, 24);
+    // East Tower on Right Side of Street (Spot 1 climbs this tower)
+    dummy.position.set(18, 28, 12);
+    dummy.scale.set(15, 56, 20);
     dummy.updateMatrix();
     this.towersMesh.setMatrixAt(count, dummy.matrix);
-    this.buildingPositions.push({ x: 18, y: 56, z: 0, w: 16, d: 24, layer: 1 });
-    this.buildingColliders.push({ minX: 10, maxX: 26, minZ: -12, maxZ: 12, height: 56 });
+    this.buildingPositions.push({ x: 18, y: 56, z: 12, w: 15, d: 20, layer: 1 });
+    this.buildingColliders.push({ minX: 10.5, maxX: 25.5, minZ: 2, maxZ: 22, height: 56 });
     count++;
 
-    // Surrounding close street blocks along Z axis
-    const sideX = [-22, 22, -45, 45];
-    const sideZ = [-60, -32, 32, 60];
+    // Generate remaining close towers along street canyon
+    for (let z = -140; z <= 140; z += 22) {
+      if (Math.abs(z) < 12) continue; // Keep player start clearing
 
-    for (let sx of sideX) {
-      for (let sz of sideZ) {
-        if (count >= totalBuildings) break;
-
-        const posX = sx + (Math.random() - 0.5) * 4;
-        const posZ = sz + (Math.random() - 0.5) * 4;
+      // Left side towers
+      if (count < totalBuildings) {
+        const posX = -17 - Math.random() * 8;
+        const posZ = z + (Math.random() - 0.5) * 6;
         const width = 14 + Math.random() * 8;
         const depth = 16 + Math.random() * 8;
-        const height = 24 + Math.random() * 55;
+        const height = 30 + Math.random() * 45;
 
         dummy.position.set(posX, height / 2, posZ);
         dummy.scale.set(width, height, depth);
         dummy.updateMatrix();
 
         this.towersMesh.setMatrixAt(count, dummy.matrix);
-        this.buildingPositions.push({
-          x: posX,
-          y: height,
-          z: posZ,
-          w: width,
-          d: depth,
-          layer: 1
-        });
-
+        this.buildingPositions.push({ x: posX, y: height, z: posZ, w: width, d: depth, layer: 1 });
         this.buildingColliders.push({
           minX: posX - width / 2,
           maxX: posX + width / 2,
@@ -159,25 +293,48 @@ export class CityGenerator {
           maxZ: posZ + depth / 2,
           height: height
         });
+        count++;
+      }
 
+      // Right side towers
+      if (count < totalBuildings) {
+        const posX = 17 + Math.random() * 8;
+        const posZ = z + (Math.random() - 0.5) * 6;
+        const width = 14 + Math.random() * 8;
+        const depth = 16 + Math.random() * 8;
+        const height = 32 + Math.random() * 48;
+
+        dummy.position.set(posX, height / 2, posZ);
+        dummy.scale.set(width, height, depth);
+        dummy.updateMatrix();
+
+        this.towersMesh.setMatrixAt(count, dummy.matrix);
+        this.buildingPositions.push({ x: posX, y: height, z: posZ, w: width, d: depth, layer: 1 });
+        this.buildingColliders.push({
+          minX: posX - width / 2,
+          maxX: posX + width / 2,
+          minZ: posZ - depth / 2,
+          maxZ: posZ + depth / 2,
+          height: height
+        });
         count++;
       }
     }
 
     // ----------------------------------------------------
     // LAYER 2: Middle Layer (135 huge towering skyscrapers)
-    // Heights 60m to 160m. Surrounding the perimeter, forming dramatic skyline.
+    // Heights 60m to 160m forming a dense metropolis skyline
     // ----------------------------------------------------
     for (let i = 0; i < 135; i++) {
       if (count >= totalBuildings) break;
 
       const angle = (i / 135) * Math.PI * 2 + (Math.random() - 0.5) * 0.15;
-      const radius = 70 + Math.random() * 85;
+      const radius = 68 + Math.random() * 85;
       const posX = Math.cos(angle) * radius;
       const posZ = Math.sin(angle) * radius;
 
-      const width = 16 + Math.random() * 14;
-      const depth = 16 + Math.random() * 14;
+      const width = 16 + Math.random() * 16;
+      const depth = 16 + Math.random() * 16;
       const height = 55 + Math.random() * 115;
 
       dummy.position.set(posX, height / 2, posZ);
@@ -185,15 +342,7 @@ export class CityGenerator {
       dummy.updateMatrix();
 
       this.towersMesh.setMatrixAt(count, dummy.matrix);
-      this.buildingPositions.push({
-        x: posX,
-        y: height,
-        z: posZ,
-        w: width,
-        d: depth,
-        layer: 2
-      });
-
+      this.buildingPositions.push({ x: posX, y: height, z: posZ, w: width, d: depth, layer: 2 });
       this.buildingColliders.push({
         minX: posX - width / 2,
         maxX: posX + width / 2,
@@ -201,24 +350,23 @@ export class CityGenerator {
         maxZ: posZ + depth / 2,
         height: height
       });
-
       count++;
     }
 
     // ----------------------------------------------------
-    // LAYER 3: Far Layer (180 giant mega-silhouettes fading into purple fog)
-    // Heights 120m to 260m. Gives real cinematic depth and scale like Blade Runner 2049.
+    // LAYER 3: Far Layer (180 giant mega-silhouettes fading into purple haze)
+    // Heights 120m to 260m creating vast Blade Runner 2049 scale
     // ----------------------------------------------------
     for (let i = 0; i < 180; i++) {
       if (count >= totalBuildings) break;
 
       const angle = (i / 180) * Math.PI * 2;
-      const radius = 175 + Math.random() * 180;
+      const radius = 170 + Math.random() * 180;
       const posX = Math.cos(angle) * radius;
       const posZ = Math.sin(angle) * radius;
 
-      const width = 30 + Math.random() * 28;
-      const depth = 30 + Math.random() * 28;
+      const width = 30 + Math.random() * 32;
+      const depth = 30 + Math.random() * 32;
       const height = 110 + Math.random() * 160;
 
       dummy.position.set(posX, height / 2, posZ);
@@ -234,54 +382,45 @@ export class CityGenerator {
   }
 
   buildRooftopDetails() {
-    // Varied rooftop architecture: Water tanks, HVAC vents, and Antenna Spires
     const dummy = new THREE.Object3D();
 
-    // 1. Antenna Spires (Instanced)
+    // 1. Antenna Spires
     const spireGeo = new THREE.CylinderGeometry(0.12, 0.45, 24, 6);
-    const spireMat = new THREE.MeshBasicMaterial({ color: 0x475569 });
+    const spireMat = new THREE.MeshBasicMaterial({ color: 0x5a6882 });
     const spireMesh = new THREE.InstancedMesh(spireGeo, spireMat, 45);
 
-    // 2. Rooftop Warning Beacons (Glowing red/amber dots atop spires)
-    const beaconGeo = new THREE.SphereGeometry(0.4, 8, 8);
+    // 2. Rooftop Warning Beacons (glowing red/amber dots)
+    const beaconGeo = new THREE.SphereGeometry(0.45, 8, 8);
     const beaconMat = new THREE.MeshBasicMaterial({ color: 0xff3b30 });
     this.beaconMesh = new THREE.InstancedMesh(beaconGeo, beaconMat, 45);
 
-    // 3. Water Tanks (Industrial cylinders on wooden/metal frames)
-    const tankGeo = new THREE.CylinderGeometry(2.2, 2.2, 4.5, 12);
-    const tankMat = new THREE.MeshStandardMaterial({
-      color: 0x1e2430,
-      roughness: 0.7,
-      metalness: 0.3
-    });
+    // 3. Water Tanks
+    const tankGeo = new THREE.CylinderGeometry(2.4, 2.4, 4.2, 12);
+    const tankMat = new THREE.MeshStandardMaterial({ color: 0x334055, roughness: 0.5 });
     const tankMesh = new THREE.InstancedMesh(tankGeo, tankMat, 30);
 
-    let spireIdx = 0;
-    let tankIdx = 0;
+    let spireCount = 0;
+    let tankCount = 0;
 
-    this.buildingPositions.forEach((b, i) => {
-      // Add spires to taller buildings
-      if (b.y > 45 && spireIdx < 45) {
-        dummy.position.set(b.x, b.y + 12, b.z);
-        dummy.scale.set(1, 1, 1);
-        dummy.updateMatrix();
-        spireMesh.setMatrixAt(spireIdx, dummy.matrix);
+    this.buildingPositions.forEach((b, idx) => {
+      if (b.layer === 1 || b.layer === 2) {
+        if (idx % 2 === 0 && spireCount < 45) {
+          dummy.position.set(b.x, b.y + 12, b.z);
+          dummy.scale.set(1, 1, 1);
+          dummy.updateMatrix();
+          spireMesh.setMatrixAt(spireCount, dummy.matrix);
 
-        // Warning beacon at the spire tip
-        dummy.position.set(b.x, b.y + 24, b.z);
-        dummy.updateMatrix();
-        this.beaconMesh.setMatrixAt(spireIdx, dummy.matrix);
-
-        spireIdx++;
-      }
-
-      // Add water tanks to lower Layer 1/2 rooftops
-      if (b.y < 55 && b.layer === 1 && tankIdx < 30) {
-        dummy.position.set(b.x + (Math.random() - 0.5) * 3, b.y + 2.25, b.z + (Math.random() - 0.5) * 3);
-        dummy.scale.set(1, 1, 1);
-        dummy.updateMatrix();
-        tankMesh.setMatrixAt(tankIdx, dummy.matrix);
-        tankIdx++;
+          dummy.position.set(b.x, b.y + 24, b.z);
+          dummy.updateMatrix();
+          this.beaconMesh.setMatrixAt(spireCount, dummy.matrix);
+          spireCount++;
+        } else if (tankCount < 30) {
+          dummy.position.set(b.x + (b.w * 0.2), b.y + 2.1, b.z);
+          dummy.scale.set(1, 1, 1);
+          dummy.updateMatrix();
+          tankMesh.setMatrixAt(tankCount, dummy.matrix);
+          tankCount++;
+        }
       }
     });
 
@@ -294,51 +433,110 @@ export class CityGenerator {
     this.scene.add(tankMesh);
   }
 
+  buildStreetLampsAndDetails() {
+    // 1. Street Lampposts with Downward Light Cones & Ground Light Spill
+    const postGeo = new THREE.CylinderGeometry(0.08, 0.12, 7.5, 8);
+    const postMat = new THREE.MeshStandardMaterial({ color: 0x334155, metalness: 0.8, roughness: 0.3 });
+    const lampHeadGeo = new THREE.BoxGeometry(0.8, 0.3, 0.4);
+    const lampEmissiveMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
+
+    // Downward translucent light cone
+    const coneGeo = new THREE.CylinderGeometry(0.2, 3.8, 7.5, 16, 1, true);
+    const coneMat = new THREE.MeshBasicMaterial({
+      color: 0x00f0ff,
+      transparent: true,
+      opacity: 0.05,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    });
+
+    // Circular ground light spill decal
+    const spillGeo = new THREE.PlaneGeometry(6.5, 6.5);
+    const spillMat = new THREE.MeshBasicMaterial({
+      color: 0x00e5ff,
+      transparent: true,
+      opacity: 0.08,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false
+    });
+
+    const lampZ = [-90, -60, -30, 0, 30, 60, 90];
+    lampZ.forEach(z => {
+      // Left sidewalk
+      this.createLampInstance(-10.5, z, postGeo, postMat, lampHeadGeo, lampEmissiveMat, coneGeo, coneMat, spillGeo, spillMat);
+      // Right sidewalk
+      this.createLampInstance(10.5, z, postGeo, postMat, lampHeadGeo, lampEmissiveMat, coneGeo, coneMat, spillGeo, spillMat);
+    });
+  }
+
+  createLampInstance(x, z, postGeo, postMat, lampHeadGeo, lampEmissiveMat, coneGeo, coneMat, spillGeo, spillMat) {
+    const lampGroup = new THREE.Group();
+    lampGroup.position.set(x, 0, z);
+
+    // Post
+    const post = new THREE.Mesh(postGeo, postMat);
+    post.position.y = 3.75;
+    lampGroup.add(post);
+
+    // Arm and head pointing inward toward street
+    const dir = x < 0 ? 1 : -1;
+    const head = new THREE.Mesh(lampHeadGeo, lampEmissiveMat);
+    head.position.set(dir * 0.9, 7.4, 0);
+    lampGroup.add(head);
+
+    // Downward volumetric cone
+    const cone = new THREE.Mesh(coneGeo, coneMat);
+    cone.position.set(dir * 0.9, 3.75, 0);
+    lampGroup.add(cone);
+
+    // Ground light pool
+    const spill = new THREE.Mesh(spillGeo, spillMat);
+    spill.rotation.x = -Math.PI / 2;
+    spill.position.set(dir * 0.9, 0.025, 0);
+    lampGroup.add(spill);
+
+    this.scene.add(lampGroup);
+  }
+
   buildNeonGlyphSigns() {
-    // Abstract glyph texture generated programmatically (NO readable English words)
+    // Generate abstract glyph canvas texture
     const canvas = document.createElement('canvas');
-    canvas.width = 256;
-    canvas.height = 512;
+    canvas.width = 128;
+    canvas.height = 384;
     const ctx = canvas.getContext('2d');
 
-    // Background transparent
-    ctx.clearRect(0, 0, 256, 512);
-
-    // Draw futuristic abstract glyphs (rune/cyber lines and blocks)
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(0, 0, 128, 384);
     ctx.strokeStyle = '#ffffff';
-    ctx.fillStyle = '#ffffff';
-    ctx.lineWidth = 14;
+    ctx.lineWidth = 6;
     ctx.lineCap = 'round';
-    ctx.lineJoin = 'miter';
 
-    for (let row = 0; row < 5; row++) {
-      const y = 50 + row * 90;
+    // Abstract vertical glyph marks
+    for (let y = 30; y < 360; y += 45) {
       ctx.beginPath();
-      ctx.moveTo(60, y);
-      ctx.lineTo(190, y);
-      ctx.lineTo(190, y + 45);
-      ctx.stroke();
-
-      ctx.beginPath();
-      ctx.arc(120, y + 25, 12, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.beginPath();
-      ctx.moveTo(70, y + 55);
-      ctx.lineTo(140, y + 55);
+      const style = Math.floor(Math.random() * 4);
+      if (style === 0) {
+        ctx.moveTo(35, y); ctx.lineTo(95, y);
+        ctx.moveTo(64, y); ctx.lineTo(64, y + 25);
+      } else if (style === 1) {
+        ctx.rect(38, y, 52, 26);
+      } else if (style === 2) {
+        ctx.moveTo(35, y); ctx.lineTo(95, y + 20);
+        ctx.moveTo(95, y); ctx.lineTo(35, y + 20);
+      } else {
+        ctx.arc(64, y + 12, 14, 0, Math.PI * 2);
+      }
       ctx.stroke();
     }
 
     const glyphTex = new THREE.CanvasTexture(canvas);
-    glyphTex.wrapS = THREE.ClampToEdgeWrapping;
-    glyphTex.wrapT = THREE.ClampToEdgeWrapping;
 
-    // Emissive neon materials
     this.pinkNeonMat = new THREE.MeshBasicMaterial({
       map: glyphTex,
-      color: 0xff0066,
+      color: 0xff0077,
       transparent: true,
-      opacity: 0.92,
+      opacity: 0.95,
       side: THREE.DoubleSide
     });
 
@@ -346,89 +544,121 @@ export class CityGenerator {
       map: glyphTex,
       color: 0x00f0ff,
       transparent: true,
-      opacity: 0.92,
+      opacity: 0.95,
       side: THREE.DoubleSide
     });
 
     this.amberNeonMat = new THREE.MeshBasicMaterial({
       map: glyphTex,
-      color: 0xff9900,
+      color: 0xffaa00,
       transparent: true,
-      opacity: 0.92,
+      opacity: 0.95,
       side: THREE.DoubleSide
     });
 
     const signGeo = new THREE.PlaneGeometry(6, 16);
     const signCount = 28;
 
+    // Ground light spill decal for neon signs
+    const signSpillGeo = new THREE.PlaneGeometry(12, 12);
+
     this.signs = [];
 
-    // Attach signs to building sides facing street canyons
     for (let i = 0; i < signCount; i++) {
       const b = this.buildingPositions[i % this.buildingPositions.length];
+      const colHex = (i % 3 === 0) ? 0xff0077 : (i % 3 === 1 ? 0x00f0ff : 0xffaa00);
       const mat = (i % 3 === 0) ? this.pinkNeonMat : (i % 3 === 1 ? this.cyanNeonMat : this.amberNeonMat);
       const signMesh = new THREE.Mesh(signGeo, mat);
 
-      // Position on outer wall
       const isXSide = i % 2 === 0;
+      let signX, signZ;
       if (isXSide) {
-        signMesh.position.set(b.x + b.w / 2 + 0.1, Math.min(b.y - 10, 24), b.z);
+        signX = b.x + b.w / 2 + 0.15;
+        signZ = b.z;
+        signMesh.position.set(signX, Math.min(b.y - 10, 22), signZ);
         signMesh.rotation.y = Math.PI / 2;
       } else {
-        signMesh.position.set(b.x, Math.min(b.y - 10, 24), b.z + b.d / 2 + 0.1);
+        signX = b.x;
+        signZ = b.z + b.d / 2 + 0.15;
+        signMesh.position.set(signX, Math.min(b.y - 10, 22), signZ);
         signMesh.rotation.y = 0;
       }
 
       this.scene.add(signMesh);
       this.signs.push({ mesh: signMesh, speed: 2 + Math.random() * 3, phase: Math.random() * 10 });
+
+      // Neon ground spill beneath sign
+      const signSpillMat = new THREE.MeshBasicMaterial({
+        color: colHex,
+        transparent: true,
+        opacity: 0.07,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+      });
+      const signSpill = new THREE.Mesh(signSpillGeo, signSpillMat);
+      signSpill.rotation.x = -Math.PI / 2;
+      signSpill.position.set(signX, 0.026, signZ);
+      this.scene.add(signSpill);
     }
   }
 
   buildVolumetricLightShafts() {
-    // 1. Street level light shafts rising from wet alleys
-    const shaftGeo = new THREE.CylinderGeometry(0.8, 6.5, 38, 16, 1, true);
-    const shaftMat = new THREE.MeshBasicMaterial({
-      color: 0x1d284a,
+    // 1. Street level light shafts rising from alleys
+    const shaftGeo = new THREE.CylinderGeometry(1.0, 7.5, 42, 16, 1, true);
+    const shaftMat1 = new THREE.MeshBasicMaterial({
+      color: 0x00f0ff,
       transparent: true,
-      opacity: 0.12,
+      opacity: 0.10,
       side: THREE.DoubleSide,
-      depthWrite: false
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
     });
 
-    const shaft1 = new THREE.Mesh(shaftGeo, shaftMat);
-    shaft1.position.set(12, 19, 12);
+    const shaft1 = new THREE.Mesh(shaftGeo, shaftMat1);
+    shaft1.position.set(12, 21, 15);
     this.scene.add(shaft1);
 
-    const shaft2 = new THREE.Mesh(shaftGeo, shaftMat.clone());
-    shaft2.material.color.setHex(0x281a42);
-    shaft2.position.set(-18, 19, -8);
+    const shaftMat2 = shaftMat1.clone();
+    shaftMat2.color.setHex(0xff0088);
+    const shaft2 = new THREE.Mesh(shaftGeo, shaftMat2);
+    shaft2.position.set(-15, 21, -12);
     this.scene.add(shaft2);
 
-    // 2. Sweeping searchlights in the rain and fog
+    // 2. Sweeping Volumetric Searchlights in Sky (mesh cones, zero light overhead)
     this.searchlights = [];
-    const searchlightColors = [0x00f0ff, 0x8b5cf6, 0x00ff88];
+    const searchlightColors = [0x00f0ff, 0x9b51e0, 0x00ff88];
     const origins = [
-      new THREE.Vector3(-45, 5, -25),
-      new THREE.Vector3(35, 8, -40),
-      new THREE.Vector3(10, 6, 45)
+      new THREE.Vector3(-45, 12, -30),
+      new THREE.Vector3(38, 14, -45),
+      new THREE.Vector3(12, 10, 48)
     ];
 
+    const coneMeshGeo = new THREE.CylinderGeometry(0.4, 14, 130, 16, 1, true);
+
     origins.forEach((pos, idx) => {
-      const spot = new THREE.SpotLight(searchlightColors[idx], 4, 180, Math.PI / 9, 0.5, 1.2);
-      spot.position.copy(pos);
+      const coneMat = new THREE.MeshBasicMaterial({
+        color: searchlightColors[idx],
+        transparent: true,
+        opacity: 0.08,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending
+      });
 
-      const target = new THREE.Object3D();
-      target.position.set(pos.x + 10, pos.y + 70, pos.z + 20);
-      this.scene.add(target);
-      spot.target = target;
+      const coneMesh = new THREE.Mesh(coneMeshGeo, coneMat);
+      coneMesh.position.copy(pos);
+      this.scene.add(coneMesh);
 
-      this.scene.add(spot);
-      this.searchlights.push({ spot, target, basePos: pos, speed: 0.3 + idx * 0.15 });
+      this.searchlights.push({
+        mesh: coneMesh,
+        basePos: pos,
+        speed: 0.4 + idx * 0.15,
+        phase: idx * 2.0
+      });
     });
   }
 
   setupPlantingSpots() {
-    // 6 strategic planting locations on streets, ledges and rooftops
     const spots = [
       { id: 0, x: -9.5, y: 0.1, z: 0, type: 'Sanctuary Spire Base' },
       { id: 1, x: 9.5, y: 0.1, z: 12, type: 'East Tower Walkway' },
@@ -438,12 +668,11 @@ export class CityGenerator {
       { id: 5, x: 0, y: 0.1, z: 45, type: 'South Canal Plaza' }
     ];
 
-    // Delicate holographic pulsing ring
     const ringGeo = new THREE.RingGeometry(1.2, 1.45, 32);
     const ringMat = new THREE.MeshBasicMaterial({
       color: 0x00ff88,
       transparent: true,
-      opacity: 0.7,
+      opacity: 0.75,
       side: THREE.DoubleSide
     });
 
@@ -464,23 +693,19 @@ export class CityGenerator {
   }
 
   update(delta, time) {
-    // Update Building Material Uniforms
     if (this.buildingMaterial && this.buildingMaterial.userData.uniforms) {
       this.buildingMaterial.userData.uniforms.uTime.value = time;
     }
 
-    // Slowly drift low cloud sheet
     if (this.cloudSheet) {
       this.cloudSheet.rotation.z = time * 0.008;
     }
 
-    // Blink warning beacons atop building spires
     if (this.beaconMesh) {
       const flash = (Math.sin(time * 3.5) > 0.65) ? 1.0 : 0.15;
       this.beaconMesh.material.opacity = flash;
     }
 
-    // Subtle flicker on neon signs
     if (this.signs) {
       this.signs.forEach(s => {
         const flicker = 0.85 + 0.15 * Math.sin(time * s.speed + s.phase);
@@ -488,16 +713,15 @@ export class CityGenerator {
       });
     }
 
-    // Sweep volumetric searchlights
+    // Sweep volumetric searchlight cones
     if (this.searchlights) {
-      this.searchlights.forEach((item, idx) => {
-        const sweep = Math.sin(time * item.speed + idx);
-        item.target.position.x = item.basePos.x + sweep * 45;
-        item.target.position.y = item.basePos.y + 75 + Math.cos(time * item.speed * 0.8) * 20;
+      this.searchlights.forEach(item => {
+        const angleX = Math.sin(time * item.speed + item.phase) * 0.45;
+        const angleZ = Math.cos(time * item.speed * 0.8 + item.phase) * 0.35;
+        item.mesh.rotation.set(angleX + 0.4, 0, angleZ);
       });
     }
 
-    // Pulse planting spot rings
     if (this.spotMeshes) {
       this.spotMeshes.forEach(sp => {
         if (!sp.isPlanted) {

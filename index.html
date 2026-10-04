@@ -69,6 +69,13 @@
             </div>
           </div>
           <div class="setting-item">
+            <label for="setting-brightness" class="setting-label">Scene Brightness</label>
+            <div class="setting-control-row">
+              <input type="range" id="setting-brightness" min="0.5" max="2.0" step="0.1" value="1.0" class="setting-slider">
+              <span id="brightness-value" class="setting-val-display">1.0x</span>
+            </div>
+          </div>
+          <div class="setting-item">
             <label class="setting-checkbox-label">
               <input type="checkbox" id="setting-invert-y" class="setting-checkbox">
               <span>Invert Vertical Look (Y-Axis)</span>
@@ -77,11 +84,72 @@
         </div>
         <div class="dialog-button-row">
           <button id="btn-resume" class="btn-quiet" type="button">Resume</button>
+          <button id="btn-pause-restart" class="btn-quiet" type="button">Restart</button>
+          <button id="btn-pause-menu" class="btn-quiet" type="button">Main menu</button>
         </div>
       </div>
     </div>
 
-    <!-- Quiet Reclaimed Corner Counter -->
+    <!-- Damage Edge Flash & Smog Overlay -->
+    <div id="damage-flash" class="damage-flash" aria-hidden="true"></div>
+    <div id="smog-overlay" class="smog-overlay" aria-hidden="true"></div>
+
+    <!-- Threat Warnings & Off-Screen Indicators -->
+    <div id="acid-warning" class="acid-warning" aria-live="assertive">ACID RAIN IMMINENT — TAKE COVER UNDER OVERHANGS</div>
+    <div id="drone-indicators" class="drone-indicators" aria-hidden="true"></div>
+    <div id="water-indicator-arrow" class="water-indicator-arrow" aria-hidden="true"></div>
+
+    <!-- Center Floating Toast Notifications -->
+    <div id="toast-risk" class="toast-banner toast-risk" aria-live="assertive">RISK &times;2</div>
+    <div id="toast-milestone" class="toast-banner toast-milestone" aria-live="polite">+8s TIME BONUS — 10% RECLAIMED</div>
+
+    <!-- Top Center HUD (Score & Combo Multiplier with Draining Ring) -->
+    <div id="hud-top-center" class="hud-top-center">
+      <div class="score-display">
+        <span class="score-label">SCORE</span>
+        <span id="hud-score-val" class="score-value">0</span>
+      </div>
+      <div id="hud-combo-group" class="combo-group" title="Chain plantings within 6 seconds">
+        <svg class="combo-ring-svg" viewBox="0 0 36 36">
+          <circle class="combo-ring-track" cx="18" cy="18" r="14" />
+          <circle id="combo-ring-fill" class="combo-ring-fill" cx="18" cy="18" r="14" />
+        </svg>
+        <span id="combo-badge-text" class="combo-text">1x</span>
+      </div>
+    </div>
+
+    <!-- Top Right HUD (Run Timer & Milestone Indicator) -->
+    <div id="hud-timer-container" class="hud-timer-container">
+      <span class="timer-label">TIME</span>
+      <span id="hud-timer-val" class="timer-val">03:00</span>
+    </div>
+
+    <!-- Bottom Center Pulse Ability Cooldown -->
+    <div id="pulse-container" class="pulse-container">
+      <div id="pulse-ability" class="pulse-ability" title="Light Pulse (Q / Right Mouse)">
+        <svg class="pulse-svg" viewBox="0 0 44 44">
+          <circle class="pulse-track" cx="22" cy="22" r="18" />
+          <circle id="pulse-cooldown-circle" class="pulse-fill" cx="22" cy="22" r="18" />
+        </svg>
+        <span class="pulse-key">Q</span>
+      </div>
+    </div>
+
+    <!-- Bottom Status (Slim Health & Water Bars) -->
+    <div id="survival-hud" class="survival-hud">
+      <div class="hud-status-group">
+        <div class="bar-container">
+          <span class="bar-label">HEALTH</span>
+          <div class="bar-track"><div id="health-bar-fill" class="bar-fill health-fill"></div></div>
+        </div>
+        <div class="bar-container">
+          <span class="bar-label">WATER</span>
+          <div class="bar-track"><div id="water-bar-fill" class="bar-fill water-fill"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bottom Left Quiet Reclaimed Corner Counter -->
     <div id="reclaimed-counter" class="reclaimed-counter" aria-live="polite">
       <span id="reclaimed-val" class="reclaimed-val">0.0%</span> reclaimed
     </div>
@@ -89,6 +157,55 @@
     <!-- Planting Interaction Prompt -->
     <div id="plant-prompt" class="plant-prompt">
       Press <span class="key-badge">E</span> to plant
+    </div>
+
+    <!-- Game Over Screen Modal -->
+    <div id="modal-gameover" class="dialog-overlay gameover-overlay" aria-hidden="true" role="dialog" aria-labelledby="go-title">
+      <div class="dialog-box gameover-box">
+        <div class="gameover-header">
+          <h2 id="go-title" class="dialog-title gameover-title">SYSTEM DEPLETED</h2>
+          <div id="go-new-best-badge" class="new-best-badge">NEW RECORD!</div>
+        </div>
+
+        <div class="gameover-stats-grid">
+          <div class="stat-card">
+            <span class="stat-label">FINAL SCORE</span>
+            <span id="go-score" class="stat-number score-glow">0</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">RECLAIMED</span>
+            <span id="go-reclaimed" class="stat-number">0.0%</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">BEST COMBO</span>
+            <span id="go-combo" class="stat-number">1x</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">VINES PLANTED</span>
+            <span id="go-vines" class="stat-number">0</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">DRONES EVADED</span>
+            <span id="go-drones" class="stat-number">0</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">SURVIVED</span>
+            <span id="go-time" class="stat-number">00:00</span>
+          </div>
+        </div>
+
+        <!-- Recent Runs History -->
+        <div class="gameover-history-section">
+          <div class="history-title">RECENT RUNS (LAST 5)</div>
+          <div id="go-history-list" class="history-list"></div>
+        </div>
+
+        <div class="gameover-actions">
+          <button id="btn-gameover-restart" class="btn-quiet btn-primary-action" type="button">Play again <span class="key-hint">(R)</span></button>
+          <button id="btn-gameover-menu" class="btn-quiet" type="button">Main menu</button>
+          <button id="btn-timelapse-hook" class="btn-quiet btn-subtle-hook" type="button" title="Capture cinematic run summary">Record Time-Lapse</button>
+        </div>
+      </div>
     </div>
 
     <!-- Debug FPS Counter (Toggled with F3) -->

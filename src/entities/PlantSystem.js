@@ -50,10 +50,11 @@ const VineShader = {
 };
 
 export class PlantSystem {
-  constructor(scene, cityGenerator, audioManager) {
+  constructor(scene, cityGenerator, audioManager, scoreManager = null) {
     this.scene = scene;
     this.city = cityGenerator;
     this.audio = audioManager;
+    this.scoreManager = scoreManager;
 
     this.activeVines = [];
     this.burstParticles = [];
@@ -64,10 +65,19 @@ export class PlantSystem {
     this.reclaimedCounterEl = document.getElementById('reclaimed-counter');
     this.promptEl = document.getElementById('plant-prompt');
 
+    this.reclaimedPercentage = 0.0;
+    if (this.reclaimedEl) {
+      this.reclaimedEl.textContent = '0.0%';
+    }
+
     this.plantedCount = 0;
-    this.totalSpots = this.city.spotMeshes.length;
+    this.totalSpots = this.city.spotMeshes ? Math.max(1, this.city.spotMeshes.length) : 6;
 
     this.initFireflies();
+  }
+
+  setScoreManager(sm) {
+    this.scoreManager = sm;
   }
 
   initFireflies() {
@@ -130,7 +140,7 @@ export class PlantSystem {
   /**
    * Trigger planting sequence
    */
-  plant(spotMesh) {
+  plant(spotMesh, isInsideSmog = false) {
     if (spotMesh.isPlanted) return;
     spotMesh.isPlanted = true;
 
@@ -152,19 +162,19 @@ export class PlantSystem {
     }
 
     // 4. Procedural Vine Growth
-    this.spawnClimbingVine(pos);
+    this.spawnClimbingVine(pos, spotMesh, isInsideSmog);
 
     // 5. World-Space Green Wave into Building Shader
     this.triggerBuildingWave(pos);
 
-    // 6. Update Reclaimed Counter
+    // 6. Update Reclaimed Counter & Score
     this.plantedCount++;
-    const pct = ((this.plantedCount / this.totalSpots) * 100).toFixed(1);
-    if (this.reclaimedEl) {
-      this.reclaimedEl.textContent = `${pct}%`;
-    }
     if (this.reclaimedCounterEl) {
       this.reclaimedCounterEl.classList.add('active');
+    }
+
+    if (this.scoreManager) {
+      this.scoreManager.recordPlanting(isInsideSmog);
     }
   }
 
@@ -222,7 +232,7 @@ export class PlantSystem {
     this.shockwaves.push({ mesh, scale: 1.0, maxScale: 8.5, opacity: 0.9 });
   }
 
-  spawnClimbingVine(pos) {
+  spawnClimbingVine(pos, spotMesh = null, isInsideSmog = false) {
     // Generate curved path climbing up the building facade at x = -10
     const curvePoints = [
       new THREE.Vector3(pos.x, pos.y, pos.z),
@@ -301,10 +311,14 @@ export class PlantSystem {
       mesh: vineMesh,
       mat: vineMat,
       growth: 0.0,
+      health: 1.0,
       curve,
       leaves,
       flowers,
-      pos
+      pos,
+      spotMesh,
+      isInsideSmog,
+      matured: false
     });
   }
 
@@ -321,9 +335,102 @@ export class PlantSystem {
     }
   }
 
+  destroyVine(vine) {
+    const idx = this.activeVines.indexOf(vine);
+    if (idx !== -1) {
+      this.activeVines.splice(idx, 1);
+    }
+
+    if (vine.mesh) this.scene.remove(vine.mesh);
+    if (vine.leaves) {
+      vine.leaves.forEach(l => { if (l.mesh) this.scene.remove(l.mesh); });
+    }
+    if (vine.flowers) {
+      vine.flowers.forEach(f => {
+        if (f.mesh) this.scene.remove(f.mesh);
+        if (f.light) this.scene.remove(f.light);
+      });
+    }
+
+    // Reset spot mesh
+    if (vine.spotMesh) {
+      vine.spotMesh.isPlanted = false;
+      if (vine.spotMesh.mesh && vine.spotMesh.mesh.material) {
+        vine.spotMesh.mesh.material.opacity = 0.7;
+        vine.spotMesh.mesh.material.color.setHex(0x00ff88);
+      }
+    }
+  }
+
+  reset() {
+    // 1. Remove all active vines
+    while (this.activeVines.length > 0) {
+      this.destroyVine(this.activeVines[0]);
+    }
+
+    // 2. Reset all spot meshes
+    if (this.city && this.city.spotMeshes) {
+      this.city.spotMeshes.forEach(sp => {
+        sp.isPlanted = false;
+        if (sp.mesh && sp.mesh.material) {
+          sp.mesh.material.opacity = 0.7;
+          sp.mesh.material.color.setHex(0x00ff88);
+        }
+      });
+    }
+
+    // 3. Clear bursts and shockwaves
+    this.burstParticles.forEach(b => { if (b.mesh) this.scene.remove(b.mesh); });
+    this.burstParticles = [];
+
+    this.shockwaves.forEach(s => { if (s.mesh) this.scene.remove(s.mesh); });
+    this.shockwaves = [];
+
+    // 4. Reset building wave uniforms
+    if (this.city && this.city.buildingMaterial) {
+      const uniforms = this.city.buildingMaterial.userData.uniforms;
+      if (uniforms) {
+        uniforms.uPlantCount.value = 0;
+        for (let i = 0; i < 8; i++) {
+          uniforms.uPlantRadii.value[i] = 0.0;
+          uniforms.uPlantSpots.value[i].set(0, -999, 0);
+        }
+      }
+    }
+
+    this.plantedCount = 0;
+    this.reclaimedPercentage = 0.0;
+    if (this.reclaimedEl) {
+      this.reclaimedEl.textContent = '0.0%';
+    }
+    if (this.reclaimedCounterEl) {
+      this.reclaimedCounterEl.classList.remove('active');
+    }
+  }
+
   update(delta, time) {
-    // 1. Animate Procedural Vine Growth
-    this.activeVines.forEach(v => {
+    // 1. Animate Procedural Vine Growth & Check Smog Damage
+    for (let i = this.activeVines.length - 1; i >= 0; i--) {
+      const v = this.activeVines[i];
+
+      // Smog zone seeds take damage until the vine matures, unless protected by a nearby healthy vine
+      if (v.isInsideSmog && !v.matured) {
+        const isProtected = this.activeVines.some(other =>
+          other !== v && other.matured && (other.health || 1.0) > 0.5 && other.pos.distanceTo(v.pos) < 22.0
+        );
+
+        if (!isProtected) {
+          v.health = Math.max(0, (v.health || 1.0) - delta * 0.12);
+          if (v.health <= 0) {
+            this.destroyVine(v);
+            if (this.scoreManager) {
+              this.scoreManager.recordVineDestroyed();
+            }
+            continue;
+          }
+        }
+      }
+
       if (v.growth < 1.0) {
         v.growth += delta * 0.28; // Grows smoothly over ~3.5 seconds
         v.growth = Math.min(v.growth, 1.0);
@@ -347,6 +454,15 @@ export class PlantSystem {
           }
         });
 
+        // Vine Maturity Achievement
+        if (v.growth >= 1.0 && !v.matured) {
+          v.matured = true;
+          const percentageContribution = 100.0 / (this.totalSpots || 6);
+          if (this.scoreManager) {
+            this.scoreManager.recordVineMatured(percentageContribution);
+          }
+        }
+
         // Spawn drifting spores from healthy vines
         if (Math.random() < 0.2) {
           this.emitSpore(v.pos);
@@ -360,7 +476,25 @@ export class PlantSystem {
           fl.light.intensity = pulse;
         }
       });
+    }
+
+    // Real vine coverage percentage calculation
+    let totalCoverage = 0.0;
+    this.activeVines.forEach(v => {
+      const health = v.health !== undefined ? v.health : 1.0;
+      totalCoverage += (v.growth || 0.0) * health;
     });
+
+    const targetTotal = this.totalSpots || 6;
+    this.reclaimedPercentage = Math.min(100.0, (totalCoverage / targetTotal) * 100.0);
+
+    if (this.reclaimedEl) {
+      this.reclaimedEl.textContent = `${this.reclaimedPercentage.toFixed(1)}%`;
+    }
+
+    if (this.scoreManager) {
+      this.scoreManager.checkReclaimedMilestones(this.reclaimedPercentage);
+    }
 
     // 2. Expand Living Green Wave Radii in Building Shader
     if (this.city && this.city.buildingMaterial) {

@@ -24,7 +24,8 @@ export class Engine {
       antialias: true,
       powerPreference: 'high-performance',
       stencil: false,
-      depth: true
+      depth: true,
+      preserveDrawingBuffer: true
     });
 
     this.renderer.setSize(this.width, this.height);
@@ -34,7 +35,7 @@ export class Engine {
     THREE.ColorManagement.enabled = true;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.05;
+    this.renderer.toneMappingExposure = 1.30;
 
     // Camera & Scene References
     this.scene = null;
@@ -102,6 +103,11 @@ export class Engine {
       this.currentScale = 1.0;
       this.renderer.setPixelRatio(this.baseDpr);
     }
+  }
+
+  setBrightness(val) {
+    this.brightnessFactor = val;
+    this.renderer.toneMappingExposure = 1.30 * Math.max(0.4, Math.min(2.5, val));
   }
 
   start(renderCallback) {
