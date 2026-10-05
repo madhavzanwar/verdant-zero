@@ -28,7 +28,7 @@ export function createBuildingMaterial() {
   };
 
   const material = new THREE.MeshStandardMaterial({
-    color: 0x1f2638,       // Deep navy/slate concrete base
+    color: 0x252e44,       // Slate-blue concrete base for improved visibility
     roughness: 0.85,       // Matte concrete surface
     metalness: 0.05,       // Low metalness to prevent high specularity
     fog: true
@@ -126,12 +126,12 @@ export function createBuildingMaterial() {
       vec3 streetGlow = vec3(0.02, 0.025, 0.04) * pow(streetSpill, 2.0);
       gl_FragColor.rgb += streetGlow;
 
-      // 3. Subtle Fresnel Rim on Tower Silhouettes (Quiet slate/cyan definition, low intensity)
+      // 3. Subtle Fresnel Rim on Tower Silhouettes (Crisp slate/cyan definition)
       vec3 viewDir = normalize(cameraPosition - vCustomWorldPos);
       float nDotV = clamp(dot(vCustomNormal, viewDir), 0.0, 1.0);
       float fresnel = pow(1.0 - nDotV, 4.0);
-      vec3 rimColor = vec3(0.15, 0.35, 0.45);
-      gl_FragColor.rgb += rimColor * (fresnel * 0.18);
+      vec3 rimColor = vec3(0.18, 0.38, 0.50);
+      gl_FragColor.rgb += rimColor * (fresnel * 0.32);
 
       // Concrete facade turns into calm mossy slate green under green wave
       if (maxLife > 0.0) {

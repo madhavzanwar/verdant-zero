@@ -152,6 +152,42 @@ export class CityGenerator {
     });
     zebraMesh.instanceMatrix.needsUpdate = true;
     this.scene.add(zebraMesh);
+
+    // 6. Sidewalk Ribbons & Crisp Luminous Curbs (Distinguishes roadways from walkways)
+    const sidewalkGeo = new THREE.PlaneGeometry(6.5, 360);
+    const sidewalkMat = new THREE.MeshStandardMaterial({
+      color: 0x181e2b,       // Subtle cool slate pavement
+      roughness: 0.80,
+      metalness: 0.10
+    });
+
+    const leftWalk = new THREE.Mesh(sidewalkGeo, sidewalkMat);
+    leftWalk.rotation.x = -Math.PI / 2;
+    leftWalk.position.set(-11.5, 0.012, 0);
+    this.scene.add(leftWalk);
+
+    const rightWalk = new THREE.Mesh(sidewalkGeo, sidewalkMat);
+    rightWalk.rotation.x = -Math.PI / 2;
+    rightWalk.position.set(11.5, 0.012, 0);
+    this.scene.add(rightWalk);
+
+    // Slim luminous curb lines separating road and sidewalk
+    const curbGeo = new THREE.PlaneGeometry(0.20, 360);
+    const curbMat = new THREE.MeshBasicMaterial({
+      color: 0x364860,
+      transparent: true,
+      opacity: 0.85
+    });
+
+    const leftCurb = new THREE.Mesh(curbGeo, curbMat);
+    leftCurb.rotation.x = -Math.PI / 2;
+    leftCurb.position.set(-8.25, 0.018, 0);
+    this.scene.add(leftCurb);
+
+    const rightCurb = new THREE.Mesh(curbGeo, curbMat);
+    rightCurb.rotation.x = -Math.PI / 2;
+    rightCurb.position.set(8.25, 0.018, 0);
+    this.scene.add(rightCurb);
   }
 
   buildSkyAtmosphere() {
@@ -268,32 +304,32 @@ export class CityGenerator {
     // Clear central street canyon along X=0, towers lining sidewalks
     // ----------------------------------------------------
     // Sanctuary Tower on Left Side of Street (Spot 0 climbs this tower)
-    dummy.position.set(-18, 24, 0);
+    dummy.position.set(-22.5, 24, 0);
     dummy.scale.set(16, 48, 22);
     dummy.updateMatrix();
     this.towersMesh.setMatrixAt(count, dummy.matrix);
-    this.buildingPositions.push({ x: -18, y: 48, z: 0, w: 16, d: 22, layer: 1 });
-    this.buildingColliders.push({ minX: -26, maxX: -10, minZ: -11, maxZ: 11, height: 48 });
+    this.buildingPositions.push({ x: -22.5, y: 48, z: 0, w: 16, d: 22, layer: 1 });
+    this.buildingColliders.push({ minX: -30.5, maxX: -14.5, minZ: -11, maxZ: 11, height: 48 });
     count++;
 
     // East Tower on Right Side of Street (Spot 1 climbs this tower)
-    dummy.position.set(18, 28, 12);
+    dummy.position.set(22.5, 28, 12);
     dummy.scale.set(15, 56, 20);
     dummy.updateMatrix();
     this.towersMesh.setMatrixAt(count, dummy.matrix);
-    this.buildingPositions.push({ x: 18, y: 56, z: 12, w: 15, d: 20, layer: 1 });
-    this.buildingColliders.push({ minX: 10.5, maxX: 25.5, minZ: 2, maxZ: 22, height: 56 });
+    this.buildingPositions.push({ x: 22.5, y: 56, z: 12, w: 15, d: 20, layer: 1 });
+    this.buildingColliders.push({ minX: 15.0, maxX: 30.0, minZ: 2, maxZ: 22, height: 56 });
     count++;
 
-    // Generate remaining close towers along street canyon
+    // Generate remaining close towers along street canyon (comfortable spacious sidewalks)
     for (let z = -140; z <= 140; z += 22) {
       if (Math.abs(z) < 12) continue; // Keep player start clearing
 
       // Left side towers
       if (count < totalBuildings) {
-        const posX = -17 - Math.random() * 8;
+        const posX = -23.5 - Math.random() * 6;
         const posZ = z + (Math.random() - 0.5) * 6;
-        const width = 14 + Math.random() * 8;
+        const width = 15 + Math.random() * 5;
         const depth = 16 + Math.random() * 8;
         const height = 30 + Math.random() * 45;
 
@@ -315,9 +351,9 @@ export class CityGenerator {
 
       // Right side towers
       if (count < totalBuildings) {
-        const posX = 17 + Math.random() * 8;
+        const posX = 23.5 + Math.random() * 6;
         const posZ = z + (Math.random() - 0.5) * 6;
-        const width = 14 + Math.random() * 8;
+        const width = 15 + Math.random() * 5;
         const depth = 16 + Math.random() * 8;
         const height = 32 + Math.random() * 48;
 
@@ -457,23 +493,23 @@ export class CityGenerator {
     const lampHeadGeo = new THREE.BoxGeometry(0.8, 0.3, 0.4);
     const lampEmissiveMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
 
-    // Downward translucent light cone
+    // Downward translucent light cone (enhances street boundary readability)
     const coneGeo = new THREE.CylinderGeometry(0.2, 3.8, 7.5, 16, 1, true);
     const coneMat = new THREE.MeshBasicMaterial({
       color: 0x00f0ff,
       transparent: true,
-      opacity: 0.05,
+      opacity: 0.12,
       side: THREE.DoubleSide,
       depthWrite: false,
       blending: THREE.AdditiveBlending
     });
 
-    // Circular ground light spill decal
+    // Circular ground light spill decal (creates gentle pools of illumination on sidewalks)
     const spillGeo = new THREE.PlaneGeometry(6.5, 6.5);
     const spillMat = new THREE.MeshBasicMaterial({
       color: 0x00e5ff,
       transparent: true,
-      opacity: 0.08,
+      opacity: 0.22,
       blending: THREE.AdditiveBlending,
       depthWrite: false
     });
@@ -729,33 +765,112 @@ export class CityGenerator {
 
   setupPlantingSpots() {
     const spots = [
-      { id: 0, x: -9.5, y: 0.1, z: 0, type: 'Sanctuary Spire Base' },
-      { id: 1, x: 9.5, y: 0.1, z: 12, type: 'East Tower Walkway' },
+      { id: 0, x: -11.5, y: 0.1, z: 0, type: 'Sanctuary Spire Base' },
+      { id: 1, x: 11.5, y: 0.1, z: 12, type: 'East Tower Walkway' },
       { id: 2, x: 0, y: 0.1, z: -35, type: 'North Avenue Crossing' },
-      { id: 3, x: -18, y: 48.1, z: 0, type: 'Sanctuary Rooftop' },
-      { id: 4, x: 18, y: 56.1, z: 0, type: 'Sky Overlook' },
+      { id: 3, x: -22.5, y: 48.1, z: 0, type: 'Sanctuary Rooftop' },
+      { id: 4, x: 22.5, y: 56.1, z: 12, type: 'Sky Overlook' },
       { id: 5, x: 0, y: 0.1, z: 45, type: 'South Canal Plaza' }
     ];
 
-    const ringGeo = new THREE.RingGeometry(1.2, 1.45, 32);
-    const ringMat = new THREE.MeshBasicMaterial({
-      color: 0x00ff88,
-      transparent: true,
-      opacity: 0.75,
-      side: THREE.DoubleSide
+    // Shared Geometries for Planter & Beacon
+    const rimGeo = new THREE.CylinderGeometry(1.65, 1.80, 0.22, 28);
+    const soilGeo = new THREE.CircleGeometry(1.5, 28);
+    const glowGeo = new THREE.CircleGeometry(1.35, 28);
+    const ringGeo = new THREE.RingGeometry(1.35, 1.75, 32);
+    const beamGeo = new THREE.CylinderGeometry(0.28, 1.05, 7.5, 16, 1, true);
+    const gemGeo = new THREE.OctahedronGeometry(0.24, 0);
+
+    const rimMat = new THREE.MeshStandardMaterial({
+      color: 0x161b26,
+      roughness: 0.75,
+      metalness: 0.20
+    });
+
+    const soilMat = new THREE.MeshStandardMaterial({
+      color: 0x0a0e14,
+      roughness: 0.95,
+      metalness: 0.05
     });
 
     this.spotMeshes = [];
 
     spots.forEach(sp => {
-      const ring = new THREE.Mesh(ringGeo, ringMat.clone());
+      const group = new THREE.Group();
+      group.position.set(sp.x, sp.y, sp.z);
+
+      // 1. Concrete Planter Rim (Grounds the spot in the physical world)
+      const rim = new THREE.Mesh(rimGeo, rimMat);
+      rim.position.y = 0.11;
+      group.add(rim);
+
+      // 2. Fertile Soil Center
+      const soil = new THREE.Mesh(soilGeo, soilMat);
+      soil.rotation.x = -Math.PI / 2;
+      soil.position.y = 0.21;
+      group.add(soil);
+
+      // 3. Inner Bioluminescent Ground Glow Disc (pulsing core)
+      const glowMat = new THREE.MeshBasicMaterial({
+        color: 0x00ff88,
+        transparent: true,
+        opacity: 0.45,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+      });
+      const groundGlow = new THREE.Mesh(glowGeo, glowMat);
+      groundGlow.rotation.x = -Math.PI / 2;
+      groundGlow.position.y = 0.22;
+      group.add(groundGlow);
+
+      // 4. Concentric Ripple Ring
+      const ringMat = new THREE.MeshBasicMaterial({
+        color: 0x00ffcc,
+        transparent: true,
+        opacity: 0.80,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+      });
+      const ring = new THREE.Mesh(ringGeo, ringMat);
       ring.rotation.x = -Math.PI / 2;
-      ring.position.set(sp.x, sp.y + 0.05, sp.z);
-      this.scene.add(ring);
+      ring.position.y = 0.23;
+      group.add(ring);
+
+      // 5. Vertical Bioluminescent Beacon Shaft (recognizable from a distance)
+      const beamMat = new THREE.MeshBasicMaterial({
+        color: 0x00ffaa,
+        transparent: true,
+        opacity: 0.18,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+      });
+      const beam = new THREE.Mesh(beamGeo, beamMat);
+      beam.position.y = 3.75;
+      group.add(beam);
+
+      // 6. Floating Seedling Gem / Spore (bobs and rotates above planter)
+      const gemMat = new THREE.MeshBasicMaterial({
+        color: 0x55ffcc
+      });
+      const gem = new THREE.Mesh(gemGeo, gemMat);
+      gem.position.y = 2.5;
+      group.add(gem);
+
+      this.scene.add(group);
 
       this.spotMeshes.push({
         data: sp,
-        mesh: ring,
+        mesh: ring, // Maintained for backward compatibility
+        group,
+        rim,
+        soil,
+        groundGlow,
+        ring,
+        beam,
+        gem,
         isPlanted: false
       });
     });
@@ -794,11 +909,43 @@ export class CityGenerator {
       });
     }
 
+    // Dynamic Bioluminescent Planting Spot Animation & Distance Proximity
     if (this.spotMeshes) {
+      const playerPos = window.__vz_app?.robot?.position;
+
       this.spotMeshes.forEach(sp => {
         if (!sp.isPlanted) {
-          const pulse = 0.5 + 0.45 * Math.sin(time * 3.0);
-          sp.mesh.material.opacity = pulse;
+          // Proximity scaling: stronger indicator when player is close
+          let proximityMult = 1.0;
+          if (playerPos) {
+            const dist = playerPos.distanceTo(new THREE.Vector3(sp.data.x, sp.data.y, sp.data.z));
+            if (dist < 28.0) {
+              proximityMult = 1.0 + (1.0 - dist / 28.0) * 0.75;
+            }
+          }
+
+          // Soft pulsing halo & ground glow
+          const pulse = 0.55 + 0.38 * Math.sin(time * 3.2 + sp.data.id * 1.4);
+          sp.ring.material.opacity = Math.min(1.0, pulse * 0.85 * proximityMult);
+          sp.groundGlow.material.opacity = Math.min(0.85, (0.35 + 0.30 * pulse) * proximityMult);
+
+          // Vertical light shaft
+          sp.beam.material.opacity = Math.min(0.42, (0.16 + 0.08 * Math.sin(time * 2.4 + sp.data.id)) * proximityMult);
+          sp.beam.rotation.y = time * 0.25;
+
+          // Bobbing seedling gem
+          sp.gem.position.y = 2.4 + Math.sin(time * 2.8 + sp.data.id * 1.8) * 0.22;
+          sp.gem.rotation.y = time * 1.2;
+        } else {
+          // Completed / Reclaimed Spot State: clear visual difference
+          if (sp.beam && sp.beam.visible) sp.beam.visible = false;
+          if (sp.gem && sp.gem.visible) sp.gem.visible = false;
+
+          // Tranquil steady emerald bloom on ground
+          sp.ring.material.color.setHex(0x10b981);
+          sp.ring.material.opacity = 0.35;
+          sp.groundGlow.material.color.setHex(0x064e3b);
+          sp.groundGlow.material.opacity = 0.50;
         }
       });
     }

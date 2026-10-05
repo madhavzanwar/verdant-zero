@@ -40,7 +40,7 @@ class VerdantZeroApp {
     // 2. Initialize Scene, Fog & Horizon Dusk Color
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x0a0c1e); // Dark indigo dusk
-    this.scene.fog = new THREE.FogExp2(0x2a1650, 0.0028); // Horizon-matching purple fog, visible up to 400m
+    this.scene.fog = new THREE.FogExp2(0x281648, 0.0023); // Horizon-matching purple fog, soft atmosphere up to 450m
 
     // 3. PMREM Environment Map for Colorful Neon Reflections on Concrete, Asphalt & Robot
     const envMap = createProceduralEnvMap(this.engine.renderer);
@@ -55,12 +55,12 @@ class VerdantZeroApp {
     );
 
     // 5. Real Scene Lights (Strictly under 8 total real lights)
-    // 5a. Hemisphere light (purple-blue sky, dark teal ground at strong intensity)
-    const hemiLight = new THREE.HemisphereLight(0x3e2570, 0x08222b, 2.4);
+    // 5a. Hemisphere light (purple-blue sky, dark teal ground at balanced visibility intensity)
+    const hemiLight = new THREE.HemisphereLight(0x483280, 0x152536, 2.6);
     this.scene.add(hemiLight);
 
     // 5b. Cool blue moonlight directional light (strictly 1 shadow caster in scene)
-    const moonLight = new THREE.DirectionalLight(0x7590d4, 1.8);
+    const moonLight = new THREE.DirectionalLight(0x7e9ae0, 2.0);
     moonLight.position.set(80, 160, -60);
     moonLight.castShadow = true;
     moonLight.shadow.mapSize.width = 1024;
@@ -104,6 +104,7 @@ class VerdantZeroApp {
     this.smogSystem = new SmogSystem(this.scene, this.city.buildingColliders);
     this.droneSystem = new DroneSystem(this.scene, this.audio, this.city.buildingColliders);
     this.survival = new SurvivalManager(this.scene, this.city.buildingColliders, this.audio, this.scoreManager);
+    this.plantSystem.setSurvivalManager(this.survival);
 
     // 10b. World Registry, Waypoint Navigation & Minimap Systems
     this.worldRegistry = new WorldRegistry();

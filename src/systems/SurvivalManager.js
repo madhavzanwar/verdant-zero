@@ -52,6 +52,10 @@ export class SurvivalManager {
     // 5. HUD DOM References
     this.healthBar = document.getElementById('health-bar-fill');
     this.waterBar = document.getElementById('water-bar-fill');
+    this.healthVal = document.getElementById('health-val');
+    this.waterVal = document.getElementById('water-val');
+    this.healthContainer = document.getElementById('health-container');
+    this.waterContainer = document.getElementById('water-container');
     this.pulseRing = document.getElementById('pulse-cooldown-circle');
     this.damageFlashEl = document.getElementById('damage-flash');
     this.smogOverlayEl = document.getElementById('smog-overlay');
@@ -448,12 +452,41 @@ export class SurvivalManager {
   }
 
   updateHUD() {
+    const healthPct = Math.max(0, Math.min(100, (this.health / this.maxHealth) * 100));
+    const waterPct = Math.max(0, Math.min(100, (this.water / this.maxWater) * 100));
+
     if (this.healthBar) {
-      this.healthBar.style.width = `${Math.max(0, (this.health / this.maxHealth) * 100)}%`;
+      this.healthBar.style.width = `${healthPct}%`;
     }
     if (this.waterBar) {
-      this.waterBar.style.width = `${Math.max(0, (this.water / this.maxWater) * 100)}%`;
+      this.waterBar.style.width = `${waterPct}%`;
     }
+
+    if (this.healthVal) {
+      this.healthVal.textContent = `${Math.round(this.health)} / ${this.maxHealth}`;
+    }
+    if (this.waterVal) {
+      this.waterVal.textContent = `${Math.round(this.water)} / ${this.maxWater}`;
+    }
+
+    // Visually communicate low health clearly (glow/pulse warning state)
+    if (this.healthContainer) {
+      if (this.health < 30) {
+        this.healthContainer.classList.add('low-health');
+      } else {
+        this.healthContainer.classList.remove('low-health');
+      }
+    }
+
+    // Visually communicate when water is insufficient for planting (< 20)
+    if (this.waterContainer) {
+      if (this.water < this.seedCost) {
+        this.waterContainer.classList.add('low-water');
+      } else {
+        this.waterContainer.classList.remove('low-water');
+      }
+    }
+
     if (this.pulseRing) {
       const progress = 1.0 - (this.pulseTimer / this.pulseCooldown);
       // SVG stroke-dashoffset: 2 * PI * r (r=18 -> 113.1)

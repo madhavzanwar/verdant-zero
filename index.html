@@ -216,10 +216,37 @@
         </div>
       </div>
 
-      <!-- Top Right HUD (Run Timer & Milestone Indicator) -->
-      <div id="hud-timer-container" class="hud-timer-container">
-        <span class="timer-label">TIME</span>
-        <span id="hud-timer-val" class="timer-val">03:00</span>
+      <!-- Top Right HUD (Run Timer & Dedicated Health/Water Status Cluster) -->
+      <div id="hud-top-right" class="hud-top-right">
+        <!-- Run Countdown Timer -->
+        <div id="hud-timer-container" class="hud-timer-container">
+          <span class="timer-label">TIME</span>
+          <span id="hud-timer-val" class="timer-val">03:00</span>
+        </div>
+
+        <!-- Dedicated Survival HUD (Health & Water Readouts) -->
+        <div id="survival-hud" class="survival-hud">
+          <!-- Health Unit -->
+          <div id="health-container" class="bar-container health-row">
+            <div class="bar-header">
+              <span class="bar-label"><span class="status-dot dot-health"></span>HEALTH</span>
+              <span id="health-val" class="bar-num">100 / 100</span>
+            </div>
+            <div class="bar-track">
+              <div id="health-bar-fill" class="bar-fill health-fill"></div>
+            </div>
+          </div>
+          <!-- Water Unit -->
+          <div id="water-container" class="bar-container water-row">
+            <div class="bar-header">
+              <span class="bar-label"><span class="status-dot dot-water"></span>WATER</span>
+              <span id="water-val" class="bar-num">100 / 100</span>
+            </div>
+            <div class="bar-track">
+              <div id="water-bar-fill" class="bar-fill water-fill"></div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Bottom Center Pulse Ability Cooldown -->
@@ -233,20 +260,6 @@
         </div>
       </div>
 
-      <!-- Bottom Status (Slim Health & Water Bars) -->
-      <div id="survival-hud" class="survival-hud">
-        <div class="hud-status-group">
-          <div class="bar-container">
-            <span class="bar-label">HEALTH</span>
-            <div class="bar-track"><div id="health-bar-fill" class="bar-fill health-fill"></div></div>
-          </div>
-          <div class="bar-container">
-            <span class="bar-label">WATER</span>
-            <div class="bar-track"><div id="water-bar-fill" class="bar-fill water-fill"></div></div>
-          </div>
-        </div>
-      </div>
-
       <!-- Top Left Quiet Reclaimed Corner Counter -->
       <div id="reclaimed-counter" class="reclaimed-counter" aria-live="polite">
         <span id="reclaimed-val" class="reclaimed-val">0.0%</span> reclaimed
@@ -254,7 +267,7 @@
 
       <!-- Planting Interaction Prompt -->
       <div id="plant-prompt" class="plant-prompt">
-        Press <span class="key-badge">E</span> to plant
+        <span class="key-badge">E</span> — PLANT SEED
       </div>
     </div>
 

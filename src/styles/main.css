@@ -412,28 +412,47 @@ html, body {
 /* Plant prompt when robot is close to a planting spot */
 .plant-prompt {
   position: absolute;
-  bottom: 8.8rem;
+  bottom: 5.8rem;
   left: 50%;
   transform: translateX(-50%) translateY(8px);
   font-family: var(--font-body);
-  font-size: 0.85rem;
-  letter-spacing: 0.12em;
-  color: var(--color-offwhite);
-  background: rgba(13, 15, 27, 0.85);
-  border: 1px solid rgba(5, 223, 114, 0.45);
-  padding: 8px 18px;
-  border-radius: 2px;
+  font-size: 0.88rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: #ffffff;
+  background: rgba(8, 12, 20, 0.92);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(0, 255, 170, 0.6);
+  padding: 8px 20px;
+  border-radius: 6px;
   opacity: 0;
   visibility: hidden;
-  transition: opacity 0.3s ease, transform 0.3s ease, visibility 0.3s;
+  transition: opacity 0.25s ease, transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.25s;
   pointer-events: none;
-  box-shadow: 0 0 15px rgba(0, 255, 136, 0.15);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6), 0 0 18px rgba(0, 255, 170, 0.35);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 50;
 }
 
 .plant-prompt.visible {
   opacity: 1;
   visibility: visible;
   transform: translateX(-50%) translateY(0);
+}
+
+.plant-prompt .key-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 7px;
+  background: #00ffaa;
+  color: #060913;
+  font-weight: 800;
+  font-size: 0.78rem;
+  border-radius: 3px;
+  box-shadow: 0 0 8px rgba(0, 255, 170, 0.6);
 }
 
 /* Hidden debug FPS counter (toggled with F3) */
@@ -557,81 +576,166 @@ html, body {
   visibility: visible;
 }
 
-/* 5. Minimal Survival HUD (Bottom Center Cluster: 320x12 Health & 240x10 Water) */
-.survival-hud {
+/* 5. Top Right HUD Cluster & Dedicated Survival HUD */
+.hud-top-right {
   position: absolute;
-  bottom: 2.5rem;
-  left: 50%;
-  transform: translateX(-50%);
+  top: 1.5rem;
+  right: 1.5rem;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 0.5rem;
+  align-items: flex-end;
+  gap: 0.65rem;
   pointer-events: auto;
-  z-index: 40;
+  z-index: 45;
 }
 
-.hud-status-group {
+.survival-hud {
+  width: 220px;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 0.45rem;
+  gap: 0.55rem;
+  background: rgba(10, 12, 22, 0.92);
+  backdrop-filter: blur(10px);
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.55), 0 0 1px rgba(255, 255, 255, 0.1);
 }
 
 .bar-container {
   display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 4px 6px;
+  border-radius: 5px;
+  border: 1px solid transparent;
+  transition: all 0.25s ease;
+}
+
+.bar-header {
+  display: flex;
+  justify-content: space-between;
   align-items: center;
-  gap: 0.65rem;
 }
 
 .bar-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-family: var(--font-body);
-  font-size: 0.65rem;
+  font-size: 0.62rem;
   font-weight: 700;
   letter-spacing: 0.16em;
-  color: #7e8b9f;
-  width: 44px;
-  text-align: right;
+  color: #8c9bb0;
+  text-transform: uppercase;
 }
 
-/* Health Bar: 320px x 12px clean matte container */
-.bar-container:first-child .bar-track {
-  width: 320px;
-  height: 12px;
-  background: rgba(13, 15, 27, 0.75);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 3px;
-  overflow: hidden;
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
 }
 
-/* Water Bar: 240px x 10px clean matte container */
-.bar-container:last-child .bar-track {
-  width: 240px;
-  height: 10px;
-  background: rgba(13, 15, 27, 0.75);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 3px;
+.dot-health {
+  background: #05df72;
+  box-shadow: 0 0 6px #05df72;
+}
+
+.dot-water {
+  background: #00d0ff;
+  box-shadow: 0 0 6px #00d0ff;
+}
+
+.bar-num {
+  font-family: var(--font-body);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  font-variant-numeric: tabular-nums;
+  color: #cbd5e1;
+}
+
+.bar-track {
+  width: 100%;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
   overflow: hidden;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.6);
 }
 
 .bar-fill {
   height: 100%;
   width: 100%;
-  transition: width 0.25s ease-out;
+  border-radius: 3px;
+  transition: width 0.3s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.3s ease;
 }
 
 .health-fill {
-  background: #05df72;
+  background: linear-gradient(90deg, #05df72 0%, #10b981 100%);
+  box-shadow: 0 0 8px rgba(5, 223, 114, 0.45);
 }
 
 .water-fill {
-  background: #00bcd4;
+  background: linear-gradient(90deg, #00d0ff 0%, #0088ff 100%);
+  box-shadow: 0 0 8px rgba(0, 208, 255, 0.45);
 }
 
-/* 6. Pulse Ability Ring just above Survival Cluster */
+/* Low Health warning state (< 30 HP) */
+.health-row.low-health {
+  border-color: rgba(255, 30, 60, 0.7);
+  background: rgba(255, 20, 50, 0.08);
+  animation: healthWarningPulse 0.9s infinite alternate;
+}
+
+.health-row.low-health .health-fill {
+  background: #ff2a44 !important;
+  box-shadow: 0 0 10px rgba(255, 42, 68, 0.8);
+}
+
+.health-row.low-health .bar-num {
+  color: #ff4d64 !important;
+  font-weight: 800;
+}
+
+@keyframes healthWarningPulse {
+  0% { box-shadow: 0 0 4px rgba(255, 30, 60, 0.3); border-color: rgba(255, 50, 70, 0.4); }
+  100% { box-shadow: 0 0 14px rgba(255, 30, 60, 0.85); border-color: rgba(255, 50, 70, 1.0); }
+}
+
+/* Low Water warning state (< 20 Water) */
+.water-row.low-water {
+  border-color: rgba(255, 170, 0, 0.5);
+  background: rgba(255, 170, 0, 0.06);
+}
+
+.water-row.low-water .water-fill {
+  background: #f59e0b !important;
+  opacity: 0.85;
+}
+
+.water-row.low-water .bar-num {
+  color: #fbbf24 !important;
+}
+
+.water-row.low-water::after {
+  content: 'INSUFFICIENT (NEED 20)';
+  display: block;
+  font-family: var(--font-body);
+  font-size: 0.58rem;
+  letter-spacing: 0.12em;
+  color: #fbbf24;
+  margin-top: 2px;
+  text-align: right;
+  font-weight: 700;
+}
+
+/* 6. Pulse Ability Ring (Bottom Center) */
 .pulse-container {
   position: absolute;
-  bottom: 6.2rem;
+  bottom: 2.2rem;
   left: 50%;
   transform: translateX(-50%);
   pointer-events: auto;
@@ -801,18 +905,16 @@ html, body {
 
 /* 2. Top Right HUD: 3-Minute Run Countdown */
 .hud-timer-container {
-  position: absolute;
-  top: 1.8rem;
-  right: 2.2rem;
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  background: rgba(13, 15, 27, 0.94);
-  padding: 6px 18px;
-  border-radius: 4px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  align-items: center;
+  gap: 0.75rem;
+  background: rgba(10, 12, 22, 0.92);
+  backdrop-filter: blur(10px);
+  padding: 6px 16px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.45);
   pointer-events: auto;
-  z-index: 40;
 }
 
 .timer-label {
@@ -826,8 +928,8 @@ html, body {
 
 .timer-val {
   font-family: var(--font-body);
-  font-size: 1.45rem;
-  font-weight: 700;
+  font-size: 1.35rem;
+  font-weight: 800;
   letter-spacing: 0.06em;
   font-variant-numeric: tabular-nums;
   color: var(--color-offwhite);
@@ -1194,21 +1296,20 @@ html, body {
   .score-value {
     font-size: 1.7rem;
   }
-  .hud-timer-container {
+  .hud-top-right {
     top: 1rem;
     right: 1rem;
-    padding: 4px 12px;
+    gap: 0.4rem;
+  }
+  .hud-timer-container {
+    padding: 4px 10px;
   }
   .timer-val {
     font-size: 1.15rem;
   }
-  .reclaimed-counter {
-    left: 1.5rem;
-    bottom: 5.5rem;
-  }
   .survival-hud {
-    left: 1.5rem;
-    bottom: 1.5rem;
+    width: 170px;
+    padding: 6px 10px;
   }
   .pulse-container {
     bottom: 1.5rem;

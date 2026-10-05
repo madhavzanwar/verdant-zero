@@ -113,23 +113,42 @@ export class PlantSystem {
   /**
    * Check proximity to planting spots
    */
-  checkProximity(playerPos) {
+  setSurvivalManager(survival) {
+    this.survival = survival;
+  }
+
+  /**
+   * Check proximity to planting spots
+   */
+  checkProximity(playerPos, canPlant = null) {
     const titleEl = document.getElementById('title-screen');
     const isTitleActive = titleEl && !titleEl.classList.contains('hidden');
 
     let nearSpot = null;
-    for (let sp of this.city.spotMeshes) {
-      if (!sp.isPlanted) {
-        const dist = playerPos.distanceTo(new THREE.Vector3(sp.data.x, sp.data.y, sp.data.z));
-        if (dist < 4.2) {
-          nearSpot = sp;
-          break;
+    if (this.city && this.city.spotMeshes) {
+      for (let sp of this.city.spotMeshes) {
+        if (!sp.isPlanted) {
+          const dist = playerPos.distanceTo(new THREE.Vector3(sp.data.x, sp.data.y, sp.data.z));
+          if (dist < 4.2) {
+            nearSpot = sp;
+            break;
+          }
         }
       }
     }
 
+    const affordable = (canPlant !== null) ? canPlant : (this.survival ? this.survival.canAffordPlant() : true);
+
     if (nearSpot && !isTitleActive) {
-      if (this.promptEl) this.promptEl.classList.add('visible');
+      if (this.promptEl) {
+        if (affordable) {
+          this.promptEl.innerHTML = '<span class="key-badge">E</span> — PLANT SEED';
+          this.promptEl.classList.add('visible');
+        } else {
+          // Only show interaction indicator when planting is actually possible
+          this.promptEl.classList.remove('visible');
+        }
+      }
       return nearSpot;
     } else {
       if (this.promptEl) this.promptEl.classList.remove('visible');
@@ -144,9 +163,26 @@ export class PlantSystem {
     if (spotMesh.isPlanted) return;
     spotMesh.isPlanted = true;
 
-    // Turn spot ring bright solid green
-    spotMesh.mesh.material.opacity = 1.0;
-    spotMesh.mesh.material.color.setHex(0x00ff88);
+    // Immediately hide vertical beacon beam and floating seedling gem
+    if (spotMesh.beam) spotMesh.beam.visible = false;
+    if (spotMesh.gem) spotMesh.gem.visible = false;
+
+    // Turn spot ring and ground glow into calm, rich, steady emerald moss bed
+    if (spotMesh.ring && spotMesh.ring.material) {
+      spotMesh.ring.material.opacity = 0.35;
+      spotMesh.ring.material.color.setHex(0x10b981);
+    }
+    if (spotMesh.groundGlow && spotMesh.groundGlow.material) {
+      spotMesh.groundGlow.material.opacity = 0.50;
+      spotMesh.groundGlow.material.color.setHex(0x064e3b);
+    }
+    if (spotMesh.mesh && spotMesh.mesh.material) {
+      spotMesh.mesh.material.opacity = 0.35;
+      spotMesh.mesh.material.color.setHex(0x10b981);
+    }
+
+    // Hide prompt immediately upon planting
+    if (this.promptEl) this.promptEl.classList.remove('visible');
 
     const pos = new THREE.Vector3(spotMesh.data.x, spotMesh.data.y, spotMesh.data.z);
 
