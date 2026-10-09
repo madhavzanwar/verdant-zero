@@ -19,7 +19,6 @@ import { WorldRegistry } from './systems/WorldRegistry.js';
 import { MapSystem } from './systems/MapSystem.js';
 import { WaypointSystem } from './systems/WaypointSystem.js';
 import { HologramSystem } from './world/HologramSystem.js';
-import { UpdraftSystem } from './world/UpdraftSystem.js';
 
 /**
  * Verdant Zero Application Bootstrap
@@ -86,7 +85,6 @@ class VerdantZeroApp {
     // 7. Core Subsystems
     this.audio = new AudioManager();
     this.cameraController = new CameraController(this.camera, this.city.buildingColliders);
-    this.updraftSystem = new UpdraftSystem(this.scene, this.audio, this.cameraController);
 
     // 8. Part C Score & Game State Manager
     this.scoreManager = new ScoreManager(this.audio);
@@ -934,11 +932,10 @@ class VerdantZeroApp {
 
     if (this.isPaused || this.scoreManager.state === 'PAUSED') return;
 
-    // 1. Update City, Holograms, Updraft Vents & Atmospheric Details
+    // 1. Update City, Holograms & Atmospheric Details
     this.city.update(delta, time);
     this.weather.update(delta, time);
     if (this.hologramSystem) this.hologramSystem.update(delta, time);
-    if (this.updraftSystem) this.updraftSystem.update(delta, time, this.robot);
 
     // 2. Camera Horizontal and Pitch Angles for Player Movement and Eye Gaze
     const cameraAngle = this.cameraController.getHorizontalAngle();

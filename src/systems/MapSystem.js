@@ -724,9 +724,6 @@ export class MapSystem {
     // 7. Purge Drones
     this.drawDrones(ctx, playerPos, scale);
 
-    // 7.5 Updraft Steam Vents
-    this.drawUpdraftVents(ctx, playerPos, scale);
-
     // 8. Active Waypoint Beacon Marker
     this.drawWaypointMarker(ctx, playerPos, scale);
 
@@ -802,9 +799,6 @@ export class MapSystem {
     if (this.settings.filters.drones) {
       this.drawDrones(ctx, pan, scale);
     }
-
-    // 7.5 Updraft Steam Vents
-    this.drawUpdraftVents(ctx, pan, scale);
 
     // 8. Active Waypoint
     this.drawWaypointMarker(ctx, pan, scale);
@@ -1025,36 +1019,6 @@ export class MapSystem {
 
       ctx.restore();
     }
-  }
-
-  drawUpdraftVents(ctx, centerPos, scale) {
-    if (!this.app || !this.app.updraftSystem) return;
-    const vents = this.app.updraftSystem.getVents();
-    const t = this.simTime;
-
-    ctx.save();
-    for (const v of vents) {
-      const vx = (v.x - centerPos.x) * scale;
-      const vz = (v.z - centerPos.z) * scale;
-
-      // Draw glowing cyan circle with upward chevron "^"
-      const pulse = 1.0 + 0.15 * Math.sin(t * 5.0 + v.x);
-      ctx.strokeStyle = '#00f0ff';
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.arc(vx, vz, 4.5 * pulse, 0, Math.PI * 2);
-      ctx.stroke();
-
-      // Cyan up-arrow chevron
-      ctx.strokeStyle = '#00ffff';
-      ctx.lineWidth = 1.2;
-      ctx.beginPath();
-      ctx.moveTo(vx - 2.5, vz + 1.5);
-      ctx.lineTo(vx, vz - 2.5);
-      ctx.lineTo(vx + 2.5, vz + 1.5);
-      ctx.stroke();
-    }
-    ctx.restore();
   }
 
   drawWaypointMarker(ctx, centerPos, scale) {

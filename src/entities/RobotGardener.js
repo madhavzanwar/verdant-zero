@@ -1243,14 +1243,4 @@ export class RobotGardener {
     this.torsoGroup.rotation.set(0, 0, 0);
     this.headGroup.rotation.set(0, 0, 0);
   }
-
-  applyUpdraft(boostVelocity = 32.5) {
-    this.velocity.y = Math.max(this.velocity.y, boostVelocity);
-    this.isGrounded = false;
-    this.isHovering = false;
-    this.hoverEnergy = this.maxHoverEnergy; // Full hover energy recharge
-    this.squash.y = 1.25; // Snappy vertical propulsion stretch
-    this.squash.xz = 0.85;
-    this.spawnLandingDust();
-  }
 }

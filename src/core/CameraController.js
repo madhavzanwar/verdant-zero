@@ -304,10 +304,6 @@ export class CameraController {
     }
   }
 
-  triggerUpdraftFov() {
-    this.fovKick = 14.0;
-  }
-
   /**
    * Prevents camera from penetrating building walls
    */

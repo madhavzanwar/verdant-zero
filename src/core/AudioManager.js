@@ -759,49 +759,6 @@ export class AudioManager {
   }
 
   /**
-   * Soft pneumatic thermal whoosh for updraft steam launch
-   */
-  playUpdraftLaunch() {
-    if (!this.ctx) return;
-    this.ensureContext();
-    const t = this.ctx.currentTime;
-
-    const bufferSize = Math.floor(this.ctx.sampleRate * 0.85);
-    const noiseBuffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
-    const data = noiseBuffer.getChannelData(0);
-    for (let i = 0; i < bufferSize; i++) data[i] = (Math.random() * 2 - 1) * 0.28;
-
-    const noise = this.ctx.createBufferSource();
-    noise.buffer = noiseBuffer;
-
-    const filter = this.ctx.createBiquadFilter();
-    filter.type = 'bandpass';
-    filter.frequency.setValueAtTime(220, t);
-    filter.frequency.exponentialRampToValueAtTime(1400, t + 0.35);
-    filter.frequency.exponentialRampToValueAtTime(320, t + 0.80);
-    filter.Q.setValueAtTime(1.8, t);
-
-    const gain = this.ctx.createGain();
-    gain.gain.setValueAtTime(0.0001, t);
-    gain.gain.linearRampToValueAtTime(0.24, t + 0.08);
-    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.82);
-
-    noise.connect(filter);
-    filter.connect(gain);
-    gain.connect(this.sfxBus);
-
-    if (this.reverbSend) {
-      const rev = this.ctx.createGain();
-      rev.gain.setValueAtTime(0.42, t);
-      gain.connect(rev);
-      rev.connect(this.reverbSend);
-    }
-
-    noise.start(t);
-    noise.stop(t + 0.85);
-  }
-
-  /**
    * Quiet low hum for drone wave alert (soft and warm, zero harsh sawtooth)
    */
   playDroneAlert() {
