@@ -55,6 +55,8 @@ export class AudioManager {
     this.padTimer = null;
     this.padChordIndex = 0;
     this.activePadGain = null;
+    this.reclamationProgress = 0.0;
+    this.adaptiveChimeTimer = null;
 
     // Rain Sound State
     this.rainSource = null;
@@ -311,6 +313,7 @@ export class AudioManager {
 
     this.padChordIndex = 0;
     this.scheduleNextPadChord();
+    this.startAdaptiveChimeLayer();
   }
 
   scheduleNextPadChord() {
@@ -323,10 +326,11 @@ export class AudioManager {
     const chordDuration = 16.0; // ~16s each
     const crossfadeTime = 5.5; // Long, seamless crossfades
 
-    // Lowpass filter dedicated to this chord (800 Hz warmth)
+    // Lowpass filter dedicated to this chord (opens dynamically from 450Hz to 1450Hz as city is reclaimed)
+    const baseCutoff = 450 + (this.reclamationProgress || 0) * 950;
     const chordFilter = this.ctx.createBiquadFilter();
     chordFilter.type = 'lowpass';
-    chordFilter.frequency.setValueAtTime(800, t);
+    chordFilter.frequency.setValueAtTime(baseCutoff, t);
     chordFilter.Q.setValueAtTime(0.65, t);
 
     // Subtle gentle filter breathing LFO
@@ -401,6 +405,69 @@ export class AudioManager {
     this.padTimer = setTimeout(() => {
       this.scheduleNextPadChord();
     }, nextDelay);
+  }
+
+  startAdaptiveChimeLayer() {
+    if (this.adaptiveChimeTimer) clearTimeout(this.adaptiveChimeTimer);
+
+    const playNextChime = () => {
+      if (!this.ctx || this.ctx.state === 'closed') return;
+
+      const progress = this.reclamationProgress || 0;
+      if (progress >= 0.18) {
+        // Pentatonic bells: C5, D5, E5, G5, A5, C6, D6
+        const pentatonic = [523.25, 587.33, 659.25, 783.99, 880.0, 1046.5, 1174.66];
+        const freq = pentatonic[Math.floor(Math.random() * pentatonic.length)];
+        const t = this.ctx.currentTime;
+
+        const osc1 = this.ctx.createOscillator();
+        osc1.type = 'sine';
+        osc1.frequency.setValueAtTime(freq, t);
+
+        const osc2 = this.ctx.createOscillator();
+        osc2.type = 'triangle';
+        osc2.frequency.setValueAtTime(freq * 2.0, t);
+
+        const gain1 = this.ctx.createGain();
+        const gain2 = this.ctx.createGain();
+        const masterNoteGain = this.ctx.createGain();
+
+        const vol = 0.035 + progress * 0.085;
+        gain1.gain.setValueAtTime(0.0001, t);
+        gain1.gain.linearRampToValueAtTime(vol, t + 0.025);
+        gain1.gain.exponentialRampToValueAtTime(0.0001, t + 2.8);
+
+        gain2.gain.setValueAtTime(0.0001, t);
+        gain2.gain.linearRampToValueAtTime(vol * 0.35, t + 0.025);
+        gain2.gain.exponentialRampToValueAtTime(0.0001, t + 1.8);
+
+        osc1.connect(gain1);
+        osc2.connect(gain2);
+        gain1.connect(masterNoteGain);
+        gain2.connect(masterNoteGain);
+        masterNoteGain.connect(this.musicBus);
+
+        if (this.reverbSend) {
+          const rev = this.ctx.createGain();
+          rev.gain.setValueAtTime(0.48, t);
+          masterNoteGain.connect(rev);
+          rev.connect(this.reverbSend);
+        }
+
+        osc1.start(t);
+        osc2.start(t);
+        osc1.stop(t + 2.9);
+        osc2.stop(t + 2.9);
+      }
+
+      // Interval shortens gracefully as more of the city is restored
+      const baseDelay = 5800 - (progress * 3400);
+      const randomJitter = (Math.random() - 0.5) * 1200;
+      const nextDelay = Math.max(2000, baseDelay + randomJitter);
+      this.adaptiveChimeTimer = setTimeout(playNextChime, nextDelay);
+    };
+
+    this.adaptiveChimeTimer = setTimeout(playNextChime, 3500);
   }
 
   // ==========================================
@@ -689,6 +756,49 @@ export class AudioManager {
     subOsc.start(t);
     noise.stop(t + 0.7);
     subOsc.stop(t + 0.7);
+  }
+
+  /**
+   * Soft pneumatic thermal whoosh for updraft steam launch
+   */
+  playUpdraftLaunch() {
+    if (!this.ctx) return;
+    this.ensureContext();
+    const t = this.ctx.currentTime;
+
+    const bufferSize = Math.floor(this.ctx.sampleRate * 0.85);
+    const noiseBuffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+    const data = noiseBuffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) data[i] = (Math.random() * 2 - 1) * 0.28;
+
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = noiseBuffer;
+
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(220, t);
+    filter.frequency.exponentialRampToValueAtTime(1400, t + 0.35);
+    filter.frequency.exponentialRampToValueAtTime(320, t + 0.80);
+    filter.Q.setValueAtTime(1.8, t);
+
+    const gain = this.ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.linearRampToValueAtTime(0.24, t + 0.08);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.82);
+
+    noise.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.sfxBus);
+
+    if (this.reverbSend) {
+      const rev = this.ctx.createGain();
+      rev.gain.setValueAtTime(0.42, t);
+      gain.connect(rev);
+      rev.connect(this.reverbSend);
+    }
+
+    noise.start(t);
+    noise.stop(t + 0.85);
   }
 
   /**
@@ -1125,13 +1235,19 @@ export class AudioManager {
     }
   }
 
+  setReclamationProgress(progress) {
+    this.reclamationProgress = Math.max(0, Math.min(1.0, progress));
+  }
+
   reset() {
+    this.reclamationProgress = 0.0;
     this.stopAcidRainSound();
     this.stopHeartbeat();
   }
 
   destroy() {
     if (this.padTimer) clearTimeout(this.padTimer);
+    if (this.adaptiveChimeTimer) clearTimeout(this.adaptiveChimeTimer);
     this.stopHeartbeat();
     this.stopAcidRainSound();
     if (this.rainSource) {

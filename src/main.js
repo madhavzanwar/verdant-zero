@@ -18,6 +18,8 @@ import { LeaderboardSystem } from './systems/LeaderboardSystem.js';
 import { WorldRegistry } from './systems/WorldRegistry.js';
 import { MapSystem } from './systems/MapSystem.js';
 import { WaypointSystem } from './systems/WaypointSystem.js';
+import { HologramSystem } from './world/HologramSystem.js';
+import { UpdraftSystem } from './world/UpdraftSystem.js';
 
 /**
  * Verdant Zero Application Bootstrap
@@ -76,13 +78,15 @@ class VerdantZeroApp {
     this.scene.add(moonLight.target);
     this.moonLight = moonLight;
 
-    // 6. Procedural City & Atmospheric Weather
+    // 6. Procedural City, Holograms & Atmospheric Weather
     this.city = new CityGenerator(this.scene);
     this.weather = new WeatherAndTraffic(this.scene);
+    this.hologramSystem = new HologramSystem(this.scene);
 
     // 7. Core Subsystems
     this.audio = new AudioManager();
     this.cameraController = new CameraController(this.camera, this.city.buildingColliders);
+    this.updraftSystem = new UpdraftSystem(this.scene, this.audio, this.cameraController);
 
     // 8. Part C Score & Game State Manager
     this.scoreManager = new ScoreManager(this.audio);
@@ -924,14 +928,17 @@ class VerdantZeroApp {
       this.cameraController.update(delta, time, this.robot);
       this.city.update(delta, time);
       this.weather.update(delta, time);
+      if (this.hologramSystem) this.hologramSystem.update(delta, time);
       return;
     }
 
     if (this.isPaused || this.scoreManager.state === 'PAUSED') return;
 
-    // 1. Update City & Atmospheric Details
+    // 1. Update City, Holograms, Updraft Vents & Atmospheric Details
     this.city.update(delta, time);
     this.weather.update(delta, time);
+    if (this.hologramSystem) this.hologramSystem.update(delta, time);
+    if (this.updraftSystem) this.updraftSystem.update(delta, time, this.robot);
 
     // 2. Camera Horizontal and Pitch Angles for Player Movement and Eye Gaze
     const cameraAngle = this.cameraController.getHorizontalAngle();
@@ -958,8 +965,11 @@ class VerdantZeroApp {
     if (this.cameraController.mode === 'GAMEPLAY' && this.scoreManager.state === 'PLAYING') {
       this.gameTime += delta;
 
-      // 6a. Update Score, Timer Countdown, Combo Draining & Animations
+      // 6a. Update Score, Timer Countdown, Combo Draining & Adaptive Audio
       this.scoreManager.update(delta);
+      if (this.audio && this.plantSystem) {
+        this.audio.setReclamationProgress(this.plantSystem.reclaimedPercentage / 100.0);
+      }
 
       if (this.scoreManager.state === 'GAMEOVER') {
         this.cameraController.setGameOverMode(this.robot.position);

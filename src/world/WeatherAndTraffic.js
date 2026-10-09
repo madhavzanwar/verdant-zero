@@ -144,6 +144,17 @@ export class WeatherAndTraffic {
     this.headlightsMesh = new THREE.InstancedMesh(lightGeo, headMat, vehicleCount);
     this.taillightsMesh = new THREE.InstancedMesh(lightGeo, tailMat, vehicleCount);
 
+    // 3D aerodynamic cruiser chassis hulls
+    const hullGeo = new THREE.ConeGeometry(0.55, 2.2, 5);
+    hullGeo.rotateX(Math.PI / 2);
+    hullGeo.scale(1.0, 0.45, 1.0);
+    const hullMat = new THREE.MeshStandardMaterial({
+      color: 0x161d2b,
+      roughness: 0.65,
+      metalness: 0.45
+    });
+    this.hullsMesh = new THREE.InstancedMesh(hullGeo, hullMat, vehicleCount);
+
     const dummy = new THREE.Object3D();
 
     // 3 distinct altitude & speed layers
@@ -170,11 +181,14 @@ export class WeatherAndTraffic {
       dummy.updateMatrix();
       this.headlightsMesh.setMatrixAt(i, dummy.matrix);
       this.taillightsMesh.setMatrixAt(i, dummy.matrix);
+      this.hullsMesh.setMatrixAt(i, dummy.matrix);
     }
 
     this.headlightsMesh.instanceMatrix.needsUpdate = true;
     this.taillightsMesh.instanceMatrix.needsUpdate = true;
+    this.hullsMesh.instanceMatrix.needsUpdate = true;
 
+    this.scene.add(this.hullsMesh);
     this.scene.add(this.headlightsMesh);
     this.scene.add(this.taillightsMesh);
   }
@@ -236,8 +250,8 @@ export class WeatherAndTraffic {
       this.rippleMesh.instanceMatrix.needsUpdate = true;
     }
 
-    // 3. Animate Sky Traffic with Curved Paths and Parallax
-    if (this.headlightsMesh && this.taillightsMesh) {
+    // 3. Animate Sky Traffic with 3D Hulls, Banking, and Parallax
+    if (this.headlightsMesh && this.taillightsMesh && this.hullsMesh) {
       const dummy = this.dummy;
 
       this.vehicles.forEach((v, i) => {
@@ -246,24 +260,41 @@ export class WeatherAndTraffic {
         const z = Math.sin(v.angle) * v.radius;
         const y = v.altitude + Math.sin(time * 0.8 + i) * 1.5;
 
-        // Front headlight
+        // Tangent heading angle and banking into the curve
+        const heading = v.angle + (v.speed > 0 ? -Math.PI / 2 : Math.PI / 2);
+        const bankRoll = v.speed > 0 ? -0.18 : 0.18;
+
+        // 3D Vehicle Hull
         dummy.position.set(x, y, z);
+        dummy.rotation.set(0, heading, bankRoll);
+        dummy.scale.set(1, 1, 1);
+        dummy.updateMatrix();
+        this.hullsMesh.setMatrixAt(i, dummy.matrix);
+
+        // Front headlight positioned at nose
+        const headOffset = v.speed > 0 ? 1.1 : -1.1;
+        dummy.position.set(
+          x - Math.sin(v.angle) * headOffset,
+          y,
+          z + Math.cos(v.angle) * headOffset
+        );
         dummy.rotation.set(0, 0, 0);
         dummy.scale.set(1, 1, 1);
         dummy.updateMatrix();
         this.headlightsMesh.setMatrixAt(i, dummy.matrix);
 
-        // Rear taillight offset
-        const trailOffset = v.speed > 0 ? -1.6 : 1.6;
+        // Rear taillight positioned at tail
+        const trailOffset = v.speed > 0 ? -1.1 : 1.1;
         dummy.position.set(
-          x + Math.sin(v.angle) * trailOffset,
+          x - Math.sin(v.angle) * trailOffset,
           y,
-          z - Math.cos(v.angle) * trailOffset
+          z + Math.cos(v.angle) * trailOffset
         );
         dummy.updateMatrix();
         this.taillightsMesh.setMatrixAt(i, dummy.matrix);
       });
 
+      this.hullsMesh.instanceMatrix.needsUpdate = true;
       this.headlightsMesh.instanceMatrix.needsUpdate = true;
       this.taillightsMesh.instanceMatrix.needsUpdate = true;
     }

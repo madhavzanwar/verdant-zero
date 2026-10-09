@@ -295,13 +295,17 @@ export class CameraController {
     this.wasDashing = isDashing;
 
     // Decay kick impulse
-    this.fovKick += (0 - this.fovKick) * Math.min(1.0, delta * 8.0);
+    this.fovKick += (0 - this.fovKick) * Math.min(1.0, delta * 6.0);
 
-    const targetFov = isDashing ? (this.dashFov + this.fovKick) : this.baseFov;
+    const targetFov = (isDashing ? this.dashFov : this.baseFov) + this.fovKick;
     if (Math.abs(this.camera.fov - targetFov) > 0.05) {
-      this.camera.fov += (targetFov - this.camera.fov) * Math.min(1.0, delta * 10.0);
+      this.camera.fov += (targetFov - this.camera.fov) * Math.min(1.0, delta * 8.0);
       this.camera.updateProjectionMatrix();
     }
+  }
+
+  triggerUpdraftFov() {
+    this.fovKick = 14.0;
   }
 
   /**
