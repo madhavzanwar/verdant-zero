@@ -98,11 +98,13 @@ export class Engine {
     // WebGLRenderer
     this.renderer = new THREE.WebGLRenderer({
       canvas: this.canvas,
-      antialias: true,
+      // The scene is rendered through the EffectComposer, so default-framebuffer MSAA would be wasted;
+      // anti-aliasing is applied on the composer's render target instead (High quality only).
+      antialias: false,
       powerPreference: 'high-performance',
       stencil: false,
       depth: true,
-      preserveDrawingBuffer: true
+      preserveDrawingBuffer: false
     });
 
     this.renderer.setSize(this.width, this.height);
@@ -155,7 +157,6 @@ export class Engine {
 
   setupDprWatcher() {
     const updateDpr = () => {
-      this.baseDpr = Math.min(window.devicePixelRatio || 1, 1.5);
       this.handleResize();
       if (this.dprMediaQuery) {
         this.dprMediaQuery.removeEventListener('change', updateDpr);
@@ -261,6 +262,7 @@ export class Engine {
       this.maxAllowedDpr = 1.0;
       this.baseDpr = Math.min(window.devicePixelRatio || 1, 1.0);
       this.renderer.shadowMap.enabled = false;
+      this.renderer.shadowMap.needsUpdate = true;
       if (this.postProcessing) {
         this.postProcessing.setQuality('low');
       }
@@ -343,6 +345,13 @@ export class Engine {
         this.postProcessing.setPixelRatio(effectiveDpr);
       }
     }
+  }
+
+  /** Restart the 2-second FPS benchmark that picks a quality tier ('Auto' preset). */
+  startBenchmark() {
+    this.benchmarking = true;
+    this.benchmarkTimer = 0;
+    this.benchmarkFrames = 0;
   }
 
   getDrsScale() {

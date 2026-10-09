@@ -5,7 +5,7 @@
  * - Nickname & College / Campus input
  * - Three Tab Views: "All Time", "Today", "My College"
  * - Share / "Challenge a Friend" deep-link & clipboard copy
- * - Rate-limited score submission (max 1 submit per 30 seconds)
+ * - Rate-limited score submission (one save per run is enforced by the app; 15s cooldown here)
  */
 
 export class LeaderboardSystem {
@@ -23,37 +23,41 @@ export class LeaderboardSystem {
     };
 
     this.activeTab = 'all'; // 'all' | 'today' | 'college'
-    this.initDefaultRecords();
+    this.removeLegacySeedRecords();
   }
 
   getSavedPlayerInfo() {
     return {
-      nickname: localStorage.getItem(this.nicknameKey) || '',
-      college: localStorage.getItem(this.collegeKey) || ''
+      nickname: this.safeGet(this.nicknameKey),
+      college: this.safeGet(this.collegeKey)
     };
   }
 
-  savePlayerInfo(nickname, college) {
-    if (nickname) localStorage.setItem(this.nicknameKey, nickname.trim().slice(0, 24));
-    if (college) localStorage.setItem(this.collegeKey, college.trim().slice(0, 36));
+  safeGet(key) {
+    try { return localStorage.getItem(key) || ''; } catch (e) { return ''; }
   }
 
-  initDefaultRecords() {
-    if (!localStorage.getItem(this.storageKey)) {
-      const initial = [
-        { id: '1', nickname: 'AeroBotanist', college: 'MIT Urban Labs', score: 1240, reclaimed: '48.2%', date: new Date().toISOString() },
-        { id: '2', nickname: 'NeonSprout', college: 'Tokyo Tech', score: 980, reclaimed: '36.5%', date: new Date().toISOString() },
-        { id: '3', nickname: 'EchoGardener', college: 'Stanford Bio', score: 850, reclaimed: '31.0%', date: new Date(Date.now() - 3600000 * 20).toISOString() },
-        { id: '4', nickname: 'VerdantViper', college: 'Oxford Eco', score: 720, reclaimed: '26.8%', date: new Date(Date.now() - 3600000 * 48).toISOString() },
-        { id: '5', nickname: 'FloraZero', college: 'NUS GreenTech', score: 540, reclaimed: '19.4%', date: new Date(Date.now() - 3600000 * 72).toISOString() }
-      ];
-      localStorage.setItem(this.storageKey, JSON.stringify(initial));
+  savePlayerInfo(nickname, college) {
+    try {
+      if (nickname) localStorage.setItem(this.nicknameKey, nickname.trim().slice(0, 24));
+      if (college) localStorage.setItem(this.collegeKey, college.trim().slice(0, 36));
+    } catch (e) { /* storage unavailable */ }
+  }
+
+  /** Earlier versions seeded fake players; drop them so the board only shows real runs. */
+  removeLegacySeedRecords() {
+    const seeds = new Set(['AeroBotanist', 'NeonSprout', 'EchoGardener', 'VerdantViper', 'FloraZero']);
+    const records = this.getLocalRecords();
+    const cleaned = records.filter(r => !(seeds.has(r.nickname) && /^[1-5]$/.test(String(r.id))));
+    if (cleaned.length !== records.length) {
+      try { localStorage.setItem(this.storageKey, JSON.stringify(cleaned)); } catch (e) { /* ignore */ }
     }
   }
 
   getLocalRecords() {
     try {
-      return JSON.parse(localStorage.getItem(this.storageKey) || '[]');
+      const list = JSON.parse(localStorage.getItem(this.storageKey) || '[]');
+      return Array.isArray(list) ? list : [];
     } catch (e) {
       return [];
     }
@@ -67,12 +71,12 @@ export class LeaderboardSystem {
     }
     this.lastSubmitTime = now;
 
-    const nickname = (entry.nickname || 'Unknown Gardener').trim().slice(0, 24);
-    const college = (entry.college || 'Autonomous Sector').trim().slice(0, 36);
+    const nickname = (entry.nickname || '').trim().slice(0, 24) || 'Anonymous Gardener';
+    const college = (entry.college || '').trim().slice(0, 36);
     const score = Math.max(0, Math.floor(entry.score || 0));
     const reclaimed = entry.reclaimed || '0.0%';
 
-    this.savePlayerInfo(nickname, college);
+    this.savePlayerInfo((entry.nickname || '').trim(), college);
 
     const record = {
       id: 'rec_' + Math.random().toString(36).substr(2, 9),
@@ -80,6 +84,9 @@ export class LeaderboardSystem {
       college,
       score,
       reclaimed,
+      combo: Math.max(1, Math.floor(entry.combo || 1)),
+      time: Math.max(0, Math.floor(entry.time || 0)),
+      victory: !!entry.victory,
       date: new Date().toISOString()
     };
 
@@ -87,13 +94,18 @@ export class LeaderboardSystem {
     const records = this.getLocalRecords();
     records.push(record);
     records.sort((a, b) => b.score - a.score);
-    localStorage.setItem(this.storageKey, JSON.stringify(records.slice(0, 50)));
+    try {
+      localStorage.setItem(this.storageKey, JSON.stringify(records.slice(0, 50)));
+    } catch (e) {
+      return { success: false, reason: 'Browser storage is unavailable.' };
+    }
 
     // 2. Submit to Firebase Firestore REST API if configured
+    let remote = false;
     if (this.firebaseConfig.projectId && this.firebaseConfig.apiKey) {
       try {
         const url = `https://firestore.googleapis.com/v1/projects/${this.firebaseConfig.projectId}/databases/(default)/documents/leaderboard?key=${this.firebaseConfig.apiKey}`;
-        await fetch(url, {
+        const res = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -106,12 +118,13 @@ export class LeaderboardSystem {
             }
           })
         });
+        remote = res.ok;
       } catch (err) {
         console.warn('Firestore sync failed, local record preserved:', err);
       }
     }
 
-    return { success: true, record };
+    return { success: true, record, remote };
   }
 
   async fetchRecords(tab = 'all', filterCollege = '') {
@@ -137,8 +150,10 @@ export class LeaderboardSystem {
                 date: f.timestamp?.timestampValue || new Date().toISOString()
               };
             });
-            // Merge & deduplicate
-            records = [...remoteRecords, ...records];
+            // Merge remote + local, dropping local rows that were also synced remotely
+            const key = r => `${r.nickname}|${r.score}|${r.date}`;
+            const seen = new Set(remoteRecords.map(key));
+            records = [...remoteRecords, ...records.filter(r => !seen.has(key(r)))];
           }
         }
       } catch (e) {
@@ -153,9 +168,7 @@ export class LeaderboardSystem {
       records = records.filter(r => new Date(r.date) >= todayStart);
     } else if (tab === 'college') {
       const userCollege = (filterCollege || this.getSavedPlayerInfo().college || '').trim().toLowerCase();
-      if (userCollege) {
-        records = records.filter(r => (r.college || '').toLowerCase().includes(userCollege));
-      }
+      records = userCollege ? records.filter(r => (r.college || '').toLowerCase() === userCollege) : [];
     }
 
     records.sort((a, b) => b.score - a.score);

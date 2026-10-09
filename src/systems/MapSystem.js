@@ -64,9 +64,6 @@ export class MapSystem {
     // DOM Hierarchy
     this.initDOM();
     this.initEventListeners();
-
-    // Ensure CSS is loaded even if bundler skips CSS imports
-    this.ensureStyleInjected();
   }
 
   // =========================================================================
@@ -105,16 +102,6 @@ export class MapSystem {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     } catch (e) {
       console.warn('MapSystem: Failed to save settings to localStorage', e);
-    }
-  }
-
-  ensureStyleInjected() {
-    if (!document.querySelector('link[href*="map.css"]') && !document.getElementById('vz-map-style-fallback')) {
-      const link = document.createElement('link');
-      link.id = 'vz-map-style-fallback';
-      link.rel = 'stylesheet';
-      link.href = './src/styles/map.css';
-      document.head.appendChild(link);
     }
   }
 
@@ -181,13 +168,7 @@ export class MapSystem {
           </div>
         </div>
         <canvas id="vz-minimap-canvas" class="vz-minimap-canvas" width="220" height="220"></canvas>
-        <div class="vz-minimap-hint">Hold [Alt] to click • Scroll to zoom</div>
-        <div class="vz-minimap-reclaimed-bar">
-          <div class="vz-reclaimed-track">
-            <div id="vz-reclaimed-fill" class="vz-reclaimed-fill" style="width: 0%;"></div>
-          </div>
-          <span id="vz-reclaimed-label" class="vz-reclaimed-text">0.0% RECLAIMED</span>
-        </div>
+        <div class="vz-minimap-hint">Alt + click: waypoint · Scroll: zoom</div>
       `;
 
       // Attach inside #gameplay-hud or body
@@ -201,8 +182,6 @@ export class MapSystem {
     this.btnNorth = document.getElementById('vz-btn-north');
     this.btnFullMap = document.getElementById('vz-btn-open-fullmap');
     this.zoomLabel = document.getElementById('vz-minimap-zoom-label');
-    this.reclaimedFill = document.getElementById('vz-reclaimed-fill');
-    this.reclaimedLabel = document.getElementById('vz-reclaimed-label');
 
     // ----------------------------------------------------
     // 2. FULL MAP MODAL OVERLAY
@@ -276,7 +255,13 @@ export class MapSystem {
                 <span class="vz-legend-icon" style="background:#ff0033;"></span> Threat Drone
               </div>
               <div class="vz-legend-item">
-                <span class="vz-legend-icon" style="background:#00f0ff;"></span> Waypoint (Beacon)
+                <span class="vz-legend-icon" style="background:#00f0ff;"></span> Waypoint
+              </div>
+              <div class="vz-legend-item">
+                <span class="vz-legend-icon" style="background:rgba(0,229,160,0.4);"></span> Skyway / shelter
+              </div>
+              <div class="vz-legend-item">
+                <span class="vz-legend-icon" style="background:#9dffd0; border-radius:0;"></span> ▲ Elevated planter
               </div>
             </div>
             <div>Click map to place Waypoint • Drag to Pan • Scroll to Zoom</div>
@@ -346,36 +331,6 @@ export class MapSystem {
         this.saveSettings();
       }, { passive: false });
     }
-
-    // 4. Alt Key Detection for Releasing Mouse Look
-    window.addEventListener('keydown', (e) => {
-      if (e.key === 'Alt') {
-        this.isAltDown = true;
-        if (document.pointerLockElement) {
-          try { document.exitPointerLock?.(); } catch (err) {}
-        }
-      }
-
-      // 'M' Key: Toggle Full Map Modal
-      if (e.code === 'KeyM') {
-        // Prevent toggle if in input
-        if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
-        this.toggleFullMap();
-      }
-
-      // Escape or Tab closes Full Map Modal if open
-      if ((e.code === 'Escape' || e.code === 'Tab') && this.isFullMapOpen) {
-        e.preventDefault();
-        e.stopPropagation();
-        this.closeFullMap();
-      }
-    });
-
-    window.addEventListener('keyup', (e) => {
-      if (e.key === 'Alt') {
-        this.isAltDown = false;
-      }
-    });
 
     // 5. Minimap Click to Set Waypoint
     if (this.minimapCanvas) {
@@ -519,11 +474,7 @@ export class MapSystem {
     this.fullMapModal.classList.add('open');
     this.fullMapModal.setAttribute('aria-hidden', 'false');
 
-    // Pause game
-    if (this.app) {
-      this.app.isPaused = true;
-      if (this.app.engine) this.app.engine.isPaused = true;
-    }
+    if (this.app && this.app.setMapOpen) this.app.setMapOpen(true);
 
     // Center full map pan on current player position
     this.fullMapPan.x = this.registry.player.position.x;
@@ -534,15 +485,12 @@ export class MapSystem {
   }
 
   closeFullMap() {
+    if (!this.isFullMapOpen) return;
     this.isFullMapOpen = false;
     this.fullMapModal.classList.remove('open');
     this.fullMapModal.setAttribute('aria-hidden', 'true');
 
-    // Unpause game
-    if (this.app) {
-      this.app.isPaused = false;
-      if (this.app.engine) this.app.engine.isPaused = false;
-    }
+    if (this.app && this.app.setMapOpen) this.app.setMapOpen(false);
   }
 
   resizeFullMapCanvas() {
@@ -659,21 +607,10 @@ export class MapSystem {
       this.lastRenderTime = now;
       this.updateSmogTexture();
       this.renderMinimap();
-      this.updateReclaimedBar();
 
       if (this.isFullMapOpen) {
         this.renderFullMap();
       }
-    }
-  }
-
-  updateReclaimedBar() {
-    const pct = this.registry.getReclaimedPercentage();
-    if (this.reclaimedFill) {
-      this.reclaimedFill.style.width = `${pct}%`;
-    }
-    if (this.reclaimedLabel) {
-      this.reclaimedLabel.textContent = `${pct.toFixed(1)}% RECLAIMED`;
     }
   }
 
@@ -777,7 +714,7 @@ export class MapSystem {
     }
 
     // 3. Buildings
-    this.drawBuildings(ctx, pan, scale);
+    this.drawBuildings(ctx, pan, scale, Math.max(w, h));
 
     // 4. Vines
     if (this.settings.filters.vines) {
@@ -851,13 +788,6 @@ export class MapSystem {
     ctx.moveTo(roadX + streetWidth, minZ); ctx.lineTo(roadX + streetWidth, maxZ);
     ctx.stroke();
 
-    // Cross avenues (Z = -70, Z = 0, Z = 70)
-    const crossAvenues = [-70, 0, 70];
-    ctx.fillStyle = '#0f1220';
-    crossAvenues.forEach(zVal => {
-      const crossY = (zVal - centerPos.z) * scale - 6 * scale;
-      ctx.fillRect((-160 - centerPos.x) * scale, crossY, 320 * scale, 12 * scale);
-    });
   }
 
   drawSmog(ctx, centerPos, scale) {
@@ -873,7 +803,7 @@ export class MapSystem {
     ctx.restore();
   }
 
-  drawBuildings(ctx, centerPos, scale) {
+  drawBuildings(ctx, centerPos, scale, bound = 160) {
     const buildings = this.registry.getBuildings();
 
     ctx.fillStyle = '#141829';
@@ -888,12 +818,22 @@ export class MapSystem {
       const bd = b.d * scale;
 
       // Fast AABB frustum cull against 240px bounds
-      if (bx > 160 || bx + bw < -160 || bz > 160 || bz + bd < -160) {
+      if (bx > bound || bx + bw < -bound || bz > bound || bz + bd < -bound) {
         continue;
       }
 
       ctx.fillRect(bx, bz, bw, bd);
       ctx.strokeRect(bx, bz, bw, bd);
+    }
+
+    // Skyways & awnings (walkable, and shelter from acid rain)
+    ctx.fillStyle = 'rgba(0, 229, 160, 0.16)';
+    ctx.strokeStyle = 'rgba(0, 229, 160, 0.45)';
+    for (const s of this.registry.getShelters()) {
+      const sx = (s.minX - centerPos.x) * scale;
+      const sz = (s.minZ - centerPos.z) * scale;
+      ctx.fillRect(sx, sz, s.w * scale, s.d * scale);
+      ctx.strokeRect(sx, sz, s.w * scale, s.d * scale);
     }
   }
 
@@ -945,6 +885,17 @@ export class MapSystem {
         ctx.beginPath();
         ctx.arc(sx, sz, radius, 0, Math.PI * 2);
         ctx.stroke();
+
+        // Elevated planter (skyway / rooftop): small chevron above the ring
+        if (s.y > 1) {
+          ctx.fillStyle = '#9dffd0';
+          ctx.beginPath();
+          ctx.moveTo(sx, sz - radius - 6);
+          ctx.lineTo(sx + 3.5, sz - radius - 2);
+          ctx.lineTo(sx - 3.5, sz - radius - 2);
+          ctx.closePath();
+          ctx.fill();
+        }
 
         // Expanding ping radar ring for nearest available spot
         if (isNearest) {

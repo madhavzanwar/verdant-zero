@@ -120,7 +120,7 @@ export class SmogSystem {
     this.scene.add(this.cloudMesh);
 
     // 2. Low Ground Mist Plane
-    const mistGeo = new THREE.PlaneGeometry(360, 360, 32, 32);
+    const mistGeo = new THREE.PlaneGeometry(360, 360);
     const mistMat = new THREE.MeshBasicMaterial({
       color: 0x481855,
       transparent: true,
@@ -157,7 +157,6 @@ export class SmogSystem {
   }
 
   update(delta, gameTime, vines = [], playerPos) {
-    this.simTimer += delta;
 
     // Difficulty ramp: smog spreads 5% faster each minute
     const minutes = gameTime / 60.0;
@@ -167,19 +166,22 @@ export class SmogSystem {
     for (let i = this.clearZones.length - 1; i >= 0; i--) {
       const cz = this.clearZones[i];
       cz.timeLeft -= delta;
-      // Immediately clear cells in radius
-      this.suppressSmogAt(cz.x, cz.z, cz.radius, 0.95);
+      // Hold the cleared area open for the zone's duration
+      this.suppressSmogAt(cz.x, cz.z, cz.radius, Math.min(1, delta * 20));
       if (cz.timeLeft <= 0) {
         this.clearZones.splice(i, 1);
       }
     }
 
     // Mature healthy vines push smog back within 15 units
-    vines.forEach(v => {
-      if (v.growth >= 0.85 && (v.health === undefined || v.health > 0.2)) {
-        this.suppressSmogAt(v.pos.x, v.pos.z, 15.0, 0.92);
+    // Throttled with the simulation step below so the effect is frame-rate independent
+    this.vineTimer = (this.vineTimer || 0) + delta;
+    if (this.vineTimer > 0.1) {
+      this.vineTimer = 0;
+      for (const v of vines) {
+        if (v.growth >= 0.85 && v.health > 0.2) this.suppressSmogAt(v.pos.x, v.pos.z, 15.0, 0.6);
       }
-    });
+    }
 
     // Run cellular automata diffusion every 0.10 seconds, sliced across 2 half-frames
     this.simTimer += delta;

@@ -1,438 +1,460 @@
 import * as THREE from 'three';
 
 /**
- * Purge Drone Threat System
- * - Red threatening drones built from primitives (flat rotating body, glowing red eye, thruster lights)
- * - Spawn from map edges in waves (grace period 30s, waves every 45s, 1 to 6 drones)
- * - Target nearest healthy vine, hover and burn with visible red laser beam and spark/fire particles
- * - Scanning cone detects player (>1s exposure triggers player chase and contact damage)
- * - Distracted by Light Pulse within 25 units (chases pulse origin for 3s)
- * - Edge-of-screen indicator arrows pointing to off-screen drones
+ * Purge Drone System
+ * States:
+ *   PATROL   drift between waypoints over the street; pick a vine to burn when one is grown enough
+ *   BURN     hover over a vine and burn it with a continuous red beam (young vines ~14s, mature ~33s)
+ *   ALERT    player seen within 14m: eye flashes, warning hum, 0.8s before engaging
+ *   CHASE    keep ~8m from the player and fire telegraphed laser shots: a thin aim line locks onto
+ *            where the player was, then fires 0.6s later. Moving or dashing out of the line dodges it.
+ *   STUNNED  hit by the Light Pulse: blind, sinking and slowly spinning for 6s
+ * Population: first drone at 0:45, one more every 90s (cap 5). Shared geometry/materials; pooled screen-edge indicators.
  */
+
+const DETECT_RADIUS = 14;
+const LOSE_RADIUS = 32;
+const SHOT_DAMAGE = 12;
+const SHOT_AIM_TIME = 0.6;
+const SHOT_INTERVAL = 1.8;
+const BURN_RATE_GROWING = 0.07;   // ~14s to kill a young vine
+const BURN_RATE_MATURE = 0.03;    // ~33s to kill a mature vine (it also regenerates when left alone)
+const RETREAT_TIME = 20;          // after destroying a vine a drone patrols before hunting again
+const MAX_DRONES = 5;
+
+const _v1 = new THREE.Vector3();
+const _v2 = new THREE.Vector3();
+const _up = new THREE.Vector3(0, 1, 0);
 
 export class DroneSystem {
   constructor(scene, audioManager, colliders = []) {
     this.scene = scene;
     this.audio = audioManager;
     this.colliders = colliders;
-
     this.drones = [];
-    this.waveTimer = 0;
-    this.currentWave = 0;
-    this.gracePeriod = 30.0;
-    this.waveInterval = 45.0;
+    this.nextId = 1;
+    this.plantSystem = null;
+    this.onPlayerHit = null;
 
-    // Edge arrow container
     this.edgeArrowsContainer = document.getElementById('drone-indicators');
+    this.chipDrone = document.getElementById('chip-drone');
+    this.arrowPool = [];
 
-    // Laser & fire particle pools
-    this.initFireParticles();
+    this.initSharedAssets();
+    this.initSparks();
+    this.reset();
   }
 
-  initFireParticles() {
-    this.sparkCount = 60;
-    const geo = new THREE.BufferGeometry();
-    const pos = new Float32Array(this.sparkCount * 3);
-    for (let i = 0; i < this.sparkCount * 3; i++) pos[i] = -999;
-    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-
-    const mat = new THREE.PointsMaterial({
-      color: 0xff4400,
-      size: 0.35,
-      transparent: true,
-      opacity: 0.85,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false
-    });
-
-    this.sparkPoints = new THREE.Points(geo, mat);
-    this.sparkData = Array.from({ length: this.sparkCount }, () => ({
-      active: false,
-      x: 0, y: 0, z: 0,
-      vx: 0, vy: 0, vz: 0,
-      life: 0
-    }));
-    this.scene.add(this.sparkPoints);
+  setPlantSystem(ps) {
+    this.plantSystem = ps;
   }
 
-  createDroneModel() {
-    const group = new THREE.Group();
-
-    // 1. Flat rotating chassis body
-    const bodyGeo = new THREE.CylinderGeometry(1.2, 1.3, 0.22, 16);
-    const bodyMat = new THREE.MeshStandardMaterial({
-      color: 0x221a22,
-      metalness: 0.8,
-      roughness: 0.3
-    });
-    const body = new THREE.Mesh(bodyGeo, bodyMat);
-    group.add(body);
-
-    // Rotating outer ring blades
-    const ringGeo = new THREE.TorusGeometry(1.35, 0.08, 8, 24);
-    const ringMat = new THREE.MeshStandardMaterial({
-      color: 0xd92b2b,
-      metalness: 0.9,
-      roughness: 0.2
-    });
-    const ring = new THREE.Mesh(ringGeo, ringMat);
-    ring.rotation.x = Math.PI / 2;
-    group.add(ring);
-
-    // 2. Glowing Red Central Eye
-    const eyeGeo = new THREE.SphereGeometry(0.35, 16, 16);
-    const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff0022 });
-    const eye = new THREE.Mesh(eyeGeo, eyeMat);
-    eye.position.y = -0.12;
-    group.add(eye);
-
-    // 3. Thruster Lights (3 corners)
-    const thrusterMat = new THREE.MeshBasicMaterial({ color: 0xff6600 });
-    const thrusterGeo = new THREE.CylinderGeometry(0.12, 0.05, 0.2, 8);
-    for (let i = 0; i < 3; i++) {
-      const angle = (i / 3) * Math.PI * 2;
-      const th = new THREE.Mesh(thrusterGeo, thrusterMat);
-      th.position.set(Math.cos(angle) * 1.0, 0.12, Math.sin(angle) * 1.0);
-      group.add(th);
-    }
-
-    // 4. Downward Scanning Cone
-    const coneGeo = new THREE.CylinderGeometry(0.2, 3.5, 10, 16, 1, true);
-    const coneMat = new THREE.MeshBasicMaterial({
-      color: 0xff0033,
-      transparent: true,
-      opacity: 0.09,
-      side: THREE.DoubleSide,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending
-    });
-    const cone = new THREE.Mesh(coneGeo, coneMat);
-    cone.position.y = -5.0;
-    group.add(cone);
-
-    // 5. Burning Laser Beam (active during vine burning)
-    const beamGeo = new THREE.CylinderGeometry(0.08, 0.08, 1, 8);
-    const beamMat = new THREE.MeshBasicMaterial({
-      color: 0xff0033,
-      transparent: true,
-      opacity: 0.9,
-      blending: THREE.AdditiveBlending
-    });
-    const beam = new THREE.Mesh(beamGeo, beamMat);
-    beam.visible = false;
-    this.scene.add(beam);
-
-    return {
-      group,
-      ring,
-      eye,
-      cone,
-      beam,
-      position: new THREE.Vector3(),
-      velocity: new THREE.Vector3(),
-      targetVine: null,
-      state: 'SEEKING', // 'SEEKING' | 'BURNING' | 'CHASING_PLAYER' | 'DISTRACTED'
-      playerDetectedTime: 0,
-      burnTimer: 0,
-      distractTimer: 0,
-      distractTarget: new THREE.Vector3()
+  initSharedAssets() {
+    this.geo = {
+      body: new THREE.CylinderGeometry(1.2, 1.3, 0.22, 16),
+      ring: new THREE.TorusGeometry(1.35, 0.08, 8, 24).rotateX(Math.PI / 2),
+      eye: new THREE.SphereGeometry(0.35, 16, 12),
+      thruster: new THREE.CylinderGeometry(0.12, 0.05, 0.2, 8),
+      cone: new THREE.CylinderGeometry(0.2, 3.5, 10, 16, 1, true).translate(0, -5, 0),
+      beam: new THREE.CylinderGeometry(0.08, 0.08, 1, 8).translate(0, 0.5, 0)
+    };
+    this.mat = {
+      body: new THREE.MeshStandardMaterial({ color: 0x221a22, metalness: 0.8, roughness: 0.3 }),
+      ring: new THREE.MeshStandardMaterial({ color: 0xd92b2b, metalness: 0.9, roughness: 0.2, emissive: 0x330000 }),
+      thruster: new THREE.MeshBasicMaterial({ color: 0xff6600 }),
+      cone: new THREE.MeshBasicMaterial({ color: 0xff0033, transparent: true, opacity: 0.08, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending })
     };
   }
 
-  spawnWave() {
-    this.currentWave++;
-    // Ramp drones from 1 up to 6
-    const droneCount = Math.min(6, this.currentWave);
-
-    if (this.audio) {
-      this.audio.playDroneAlert();
-    }
-
-    for (let i = 0; i < droneCount; i++) {
-      const drone = this.createDroneModel();
-      // Spawn at map edge
-      const angle = Math.random() * Math.PI * 2;
-      const radius = 130 + Math.random() * 20;
-      drone.position.set(
-        Math.cos(angle) * radius,
-        18 + Math.random() * 15,
-        Math.sin(angle) * radius
-      );
-      drone.group.position.copy(drone.position);
-      this.scene.add(drone.group);
-      this.drones.push(drone);
-    }
+  initSparks() {
+    this.sparkCount = 80;
+    const geo = new THREE.BufferGeometry();
+    const pos = new Float32Array(this.sparkCount * 3).fill(-999);
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    this.sparkPoints = new THREE.Points(geo, new THREE.PointsMaterial({
+      color: 0xff5500, size: 0.35, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false
+    }));
+    this.sparkPoints.frustumCulled = false;
+    this.sparkData = Array.from({ length: this.sparkCount }, () => ({ active: false, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, life: 0 }));
+    this.sparkCursor = 0;
+    this.scene.add(this.sparkPoints);
   }
 
-  distractDrones(pulseOrigin, radius = 25.0, duration = 3.0) {
-    let distractedCount = 0;
-    this.drones.forEach(d => {
-      if (d.position.distanceTo(pulseOrigin) <= radius) {
-        d.state = 'DISTRACTED';
-        d.distractTimer = duration;
-        d.distractTarget.copy(pulseOrigin);
-        d.beam.visible = false;
-        distractedCount++;
-      }
-    });
-    return distractedCount;
-  }
+  createDrone() {
+    const group = new THREE.Group();
+    group.add(new THREE.Mesh(this.geo.body, this.mat.body));
+    const ring = new THREE.Mesh(this.geo.ring, this.mat.ring);
+    group.add(ring);
 
-  update(delta, gameTime, vines = [], playerPos, camera) {
-    // 1. Wave Spawn Scheduling
-    if (gameTime > this.gracePeriod) {
-      this.waveTimer += delta;
-      if (this.waveTimer >= this.waveInterval || this.drones.length === 0) {
-        this.waveTimer = 0;
-        this.spawnWave();
-      }
+    const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff0022 });
+    const eye = new THREE.Mesh(this.geo.eye, eyeMat);
+    eye.position.y = -0.12;
+    group.add(eye);
+
+    for (let i = 0; i < 3; i++) {
+      const a = (i / 3) * Math.PI * 2;
+      const th = new THREE.Mesh(this.geo.thruster, this.mat.thruster);
+      th.position.set(Math.cos(a), 0.12, Math.sin(a));
+      group.add(th);
     }
 
-    let playerDamage = 0;
+    const cone = new THREE.Mesh(this.geo.cone, this.mat.cone);
+    group.add(cone);
 
-    // 2. Update Each Active Drone
-    this.drones.forEach(d => {
-      // Rotate chassis ring
-      d.ring.rotation.z += delta * 6.0;
+    // Beam is reused for both the vine-burning ray and the aim/shot line
+    const beamMat = new THREE.MeshBasicMaterial({ color: 0xff0033, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false });
+    const beam = new THREE.Mesh(this.geo.beam, beamMat);
+    beam.visible = false;
+    beam.frustumCulled = false;
+    this.scene.add(beam);
 
-      // Bobbing
-      d.group.position.y = d.position.y + Math.sin(gameTime * 3.0) * 0.35;
+    return {
+      id: `drone_${this.nextId++}`,
+      group, ring, eye, eyeMat, cone, beam, beamMat,
+      position: new THREE.Vector3(),
+      velocity: new THREE.Vector3(),
+      patrolTarget: new THREE.Vector3(),
+      aimPoint: new THREE.Vector3(),
+      cruiseY: 16 + Math.random() * 8,
+      state: 'PATROL',
+      stateTimer: 0,
+      shotTimer: 0,
+      aiming: false,
+      targetVine: null,
+      stunTimer: 0,
+      lostTimer: 0,
+      retreatTimer: 0,
+      phase: Math.random() * 10
+    };
+  }
 
-      // Handle States
-      if (d.state === 'DISTRACTED') {
-        d.distractTimer -= delta;
-        const dir = d.distractTarget.clone().sub(d.position).normalize();
-        d.position.addScaledVector(dir, delta * 12.0);
-        d.group.position.x = d.position.x;
-        d.group.position.z = d.position.z;
+  spawnDrone() {
+    const d = this.createDrone();
+    // Arrive from either end of the street canyon, high above the skyline
+    const end = Math.random() < 0.5 ? -1 : 1;
+    d.position.set((Math.random() - 0.5) * 30, 40, end * (110 + Math.random() * 25));
+    this.pickPatrolTarget(d);
+    d.group.position.copy(d.position);
+    this.scene.add(d.group);
+    this.drones.push(d);
+  }
 
-        if (d.distractTimer <= 0) {
-          d.state = 'SEEKING';
-        }
-      } else if (d.state === 'CHASING_PLAYER' && playerPos) {
-        const toPlayer = playerPos.clone().sub(d.position);
-        const dist = toPlayer.length();
-        if (dist > 1.2) {
-          toPlayer.normalize();
-          d.position.addScaledVector(toPlayer, delta * 14.0);
-          d.group.position.x = d.position.x;
-          d.group.position.z = d.position.z;
-        } else {
-          // Contact damage
-          playerDamage += 18.0 * delta;
-        }
-        // If player escapes beyond 22 units, return to seeking vines
-        if (dist > 24.0) {
-          d.state = 'SEEKING';
-          d.playerDetectedTime = 0;
-        }
-      } else if (d.state === 'BURNING') {
-        // Drone is hovering over vine burning it
-        if (!d.targetVine || d.targetVine.health <= 0 || d.targetVine.growth <= 0) {
-          d.state = 'SEEKING';
-          d.targetVine = null;
-          d.beam.visible = false;
-        } else {
-          // Burn vine
-          d.targetVine.health = Math.max(0, (d.targetVine.health || 1.0) - delta * 0.22);
-          d.beam.visible = true;
+  pickPatrolTarget(d) {
+    d.patrolTarget.set((Math.random() - 0.5) * 70, d.cruiseY, (Math.random() - 0.5) * 240);
+  }
 
-          // Position laser beam from drone to vine origin
-          const start = d.position.clone().add(new THREE.Vector3(0, -0.4, 0));
-          const end = d.targetVine.pos.clone().add(new THREE.Vector3(0, 1.2, 0));
-          const mid = start.clone().add(end).multiplyScalar(0.5);
-          const len = start.distanceTo(end);
+  /** Light pulse: stun every drone within radius. Returns how many were newly stunned. */
+  stunDrones(origin, radius, duration) {
+    let count = 0;
+    for (const d of this.drones) {
+      if (d.position.distanceTo(origin) <= radius) {
+        if (d.state !== 'STUNNED') count++;
+        this.setState(d, 'STUNNED');
+        d.stunTimer = duration;
+      }
+    }
+    return count;
+  }
 
-          d.beam.position.copy(mid);
-          d.beam.scale.set(1, len, 1);
-          d.beam.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), end.clone().sub(start).normalize());
+  setState(d, state) {
+    d.state = state;
+    d.stateTimer = 0;
+    d.aiming = false;
+    d.beam.visible = false;
+    if (state !== 'BURN') d.targetVine = null;
+  }
 
-          // Emit sparks at contact point
-          this.emitSparks(end);
-        }
+  targetDroneCount(gameTime) {
+    if (gameTime < 45) return 0;
+    return Math.min(MAX_DRONES, 1 + Math.floor((gameTime - 45) / 90));
+  }
+
+  update(delta, gameTime, vines, playerPos, playerState) {
+    // Population: one drone every few seconds until the target count for this point in the run
+    this.spawnTimer -= delta;
+    if (this.drones.length < this.targetDroneCount(gameTime) && this.spawnTimer <= 0) {
+      this.spawnTimer = 6;
+      this.spawnDrone();
+      if (this.audio) this.audio.playDroneAlert();
+    }
+
+    let engaged = 0;
+    let nearestDist = Infinity;
+
+    for (const d of this.drones) {
+      d.stateTimer += delta;
+      d.ring.rotation.y += delta * (d.state === 'STUNNED' ? 1.0 : 6.0);
+      const distToPlayer = d.position.distanceTo(playerPos);
+      const horizToPlayer = Math.hypot(d.position.x - playerPos.x, d.position.z - playerPos.z);
+      nearestDist = Math.min(nearestDist, distToPlayer);
+
+      switch (d.state) {
+        case 'STUNNED': this.updateStunned(d, delta); break;
+        case 'ALERT': this.updateAlert(d, delta, playerPos); break;
+        case 'CHASE': this.updateChase(d, delta, playerPos, playerState, distToPlayer); engaged++; break;
+        case 'BURN': this.updateBurn(d, delta, gameTime); break;
+        default: this.updatePatrol(d, delta, vines);
+      }
+
+      // Detection (any non-stunned, non-engaged state)
+      // Scanner reach is horizontal (drones cruise 15–25m up and look down)
+      if ((d.state === 'PATROL' || d.state === 'BURN') && horizToPlayer < DETECT_RADIUS &&
+          Math.abs(d.position.y - playerPos.y) < 28 && playerState.alive) {
+        this.setState(d, 'ALERT');
+        if (this.audio) this.audio.playDroneAlert();
+      }
+
+      this.avoidBuildings(d);
+
+      // Visual position (bob), eye colour
+      d.group.position.set(d.position.x, d.position.y + Math.sin(gameTime * 3 + d.phase) * 0.3, d.position.z);
+      if (d.state === 'STUNNED') {
+        d.eyeMat.color.setHex(0x3355ff);
+      } else if (d.state === 'ALERT') {
+        d.eyeMat.color.setHex(Math.sin(d.stateTimer * 40) > 0 ? 0xffffff : 0xff0022);
       } else {
-        // SEEKING state: pick nearest healthy vine
-        d.beam.visible = false;
-        let nearestVine = null;
-        let minDist = Infinity;
-
-        vines.forEach(v => {
-          if (v.growth > 0.3 && (v.health === undefined || v.health > 0)) {
-            const dist = d.position.distanceTo(v.pos);
-            if (dist < minDist) {
-              minDist = dist;
-              nearestVine = v;
-            }
-          }
-        });
-
-        if (nearestVine) {
-          d.targetVine = nearestVine;
-          const targetHoverPos = nearestVine.pos.clone().add(new THREE.Vector3(0, 9.0, 0));
-          const toTarget = targetHoverPos.sub(d.position);
-          const dist = toTarget.length();
-
-          if (dist > 1.5) {
-            toTarget.normalize();
-            d.position.addScaledVector(toTarget, delta * 11.0);
-            d.group.position.x = d.position.x;
-            d.group.position.z = d.position.z;
-          } else {
-            d.state = 'BURNING';
-          }
-        }
+        d.eyeMat.color.setHex(0xff0022);
       }
+      d.cone.visible = d.state !== 'STUNNED';
+    }
 
-      // Check player inside Scanning Cone (>1s triggers chase)
-      if (playerPos && d.state !== 'CHASING_PLAYER' && d.state !== 'DISTRACTED') {
-        const horizDist = Math.hypot(d.position.x - playerPos.x, d.position.z - playerPos.z);
-        const vertDiff = d.position.y - playerPos.y;
-        if (horizDist < 3.8 && vertDiff > 0 && vertDiff < 10.5) {
-          d.playerDetectedTime += delta;
-          if (d.playerDetectedTime > 1.0) {
-            d.state = 'CHASING_PLAYER';
-            d.beam.visible = false;
-          }
-        } else {
-          d.playerDetectedTime = Math.max(0, d.playerDetectedTime - delta * 0.5);
-        }
-      }
-
-      // 3. Skyscraper Obstacle Avoidance (Lift drone above building if colliding)
-      if (this.colliders && this.colliders.length > 0) {
-        for (let c of this.colliders) {
-          if (d.position.x > c.minX - 1.2 && d.position.x < c.maxX + 1.2 &&
-              d.position.z > c.minZ - 1.2 && d.position.z < c.maxZ + 1.2) {
-            if (d.position.y < c.height + 2.5) {
-              d.position.y = c.height + 2.5;
-              d.group.position.y = d.position.y;
-            }
-          }
-        }
-      }
-    });
-
-    // 3. Update Sparks Animation
     this.updateSparks(delta);
+    if (this.audio) this.audio.setDroneProximity(nearestDist, engaged > 0);
+    if (this.chipDrone) {
+      const hidden = engaged === 0;
+      if (this.chipDrone.hidden !== hidden) this.chipDrone.hidden = hidden;
+    }
+  }
 
-    // 4. Update Screen-Edge Indicator Arrows
-    this.updateScreenIndicators(camera);
+  moveTowards(d, target, speed, delta) {
+    _v1.subVectors(target, d.position);
+    const dist = _v1.length();
+    if (dist > 0.01) {
+      _v1.multiplyScalar(Math.min(dist, speed * delta) / dist);
+      d.position.add(_v1);
+      d.group.rotation.y = Math.atan2(_v1.x, _v1.z);
+    }
+    return dist;
+  }
 
-    return { playerDamage };
+  updatePatrol(d, delta, vines) {
+    d.beam.visible = false;
+    if (d.retreatTimer > 0) {
+      d.retreatTimer -= delta;
+      if (this.moveTowards(d, d.patrolTarget, 7, delta) < 2) this.pickPatrolTarget(d);
+      return;
+    }
+    // Pick the nearest vine worth burning
+    let best = null, bestDist = 90;
+    for (const v of vines) {
+      if (v.growth < 0.3 || v.health <= 0) continue;
+      if (this.drones.some(o => o !== d && o.targetVine === v)) continue;
+      const dist = Math.hypot(v.pos.x - d.position.x, v.pos.z - d.position.z);
+      if (dist < bestDist) { bestDist = dist; best = v; }
+    }
+
+    if (best) {
+      _v2.set(best.pos.x, best.pos.y + 9, best.pos.z);
+      if (this.moveTowards(d, _v2, 9, delta) < 1.5) {
+        this.setState(d, 'BURN');
+        d.targetVine = best;
+      }
+      d.targetVine = best;
+      return;
+    }
+
+    if (this.moveTowards(d, d.patrolTarget, 7, delta) < 2) this.pickPatrolTarget(d);
+  }
+
+  updateBurn(d, delta) {
+    const v = d.targetVine;
+    if (!v || v.health <= 0 || !this.plantSystem || !this.plantSystem.activeVines.includes(v)) {
+      const destroyed = !!v && (v.health <= 0 || !this.plantSystem?.activeVines.includes(v));
+      this.setState(d, 'PATROL');
+      if (destroyed) {
+        d.retreatTimer = RETREAT_TIME;
+        this.pickPatrolTarget(d);
+      }
+      return;
+    }
+    this.plantSystem.damageVine(v, (v.matured ? BURN_RATE_MATURE : BURN_RATE_GROWING) * delta);
+    _v2.set(v.pos.x, v.pos.y + 1.2, v.pos.z);
+    this.pointBeam(d, _v2, 0.9, 1);
+    if (Math.random() < 0.5) this.emitSparks(_v2);
+  }
+
+  updateAlert(d, delta, playerPos) {
+    d.group.rotation.y = Math.atan2(playerPos.x - d.position.x, playerPos.z - d.position.z);
+    if (d.stateTimer >= 0.8) {
+      this.setState(d, 'CHASE');
+      d.shotTimer = 0.4;
+    }
+  }
+
+  updateChase(d, delta, playerPos, playerState, distToPlayer) {
+    // Hold an orbit ~8m away, 5m above the player
+    _v1.subVectors(d.position, playerPos);
+    _v1.y = 0;
+    if (_v1.lengthSq() < 0.01) _v1.set(1, 0, 0);
+    _v1.normalize().multiplyScalar(8);
+    _v2.copy(playerPos).add(_v1);
+    _v2.y = playerPos.y + 5;
+    this.moveTowards(d, _v2, 11, delta);
+    d.group.rotation.y = Math.atan2(playerPos.x - d.position.x, playerPos.z - d.position.z);
+
+    if (distToPlayer > LOSE_RADIUS || !playerState.alive) {
+      d.lostTimer += delta;
+      if (d.lostTimer > 2.5) { d.lostTimer = 0; this.setState(d, 'PATROL'); }
+      return;
+    }
+    d.lostTimer = 0;
+
+    d.shotTimer -= delta;
+    if (!d.aiming && d.shotTimer <= 0) {
+      // Lock the aim slightly ahead of the player: running straight gets you hit, changing direction dodges
+      d.aiming = true;
+      d.aimTimer = SHOT_AIM_TIME;
+      d.aimPoint.copy(playerPos);
+      if (playerState.velocity) {
+        d.aimPoint.x += playerState.velocity.x * SHOT_AIM_TIME * 0.7;
+        d.aimPoint.z += playerState.velocity.z * SHOT_AIM_TIME * 0.7;
+      }
+      if (this.audio) this.audio.playLaserCharge();
+    }
+
+    if (d.aiming) {
+      d.aimTimer -= delta;
+      this.pointBeam(d, d.aimPoint, 0.25 + 0.25 * Math.sin(d.aimTimer * 60), 0.35, true);
+      if (d.aimTimer <= 0) {
+        d.aiming = false;
+        d.shotTimer = SHOT_INTERVAL;
+        this.pointBeam(d, d.aimPoint, 1, 2.2, true);
+        d.flashTimer = 0.12;
+        this.emitSparks(d.aimPoint);
+        if (this.audio) this.audio.playLaserShot();
+        // Hit if the player is still close to the locked aim point (dashing grants immunity)
+        const missDist = Math.hypot(playerPos.x - d.aimPoint.x, playerPos.y - d.aimPoint.y, playerPos.z - d.aimPoint.z);
+        if (missDist < 1.6 && !playerState.dashing && this.onPlayerHit) {
+          this.onPlayerHit(SHOT_DAMAGE);
+        }
+      }
+    } else if (d.flashTimer > 0) {
+      d.flashTimer -= delta;
+      if (d.flashTimer <= 0) d.beam.visible = false;
+    } else {
+      d.beam.visible = false;
+    }
+  }
+
+  updateStunned(d, delta) {
+    d.stunTimer -= delta;
+    d.position.y = Math.max(8, d.position.y - delta * 2.5);
+    d.group.rotation.y += delta * 1.5;
+    if (d.stunTimer <= 0) {
+      this.setState(d, 'PATROL');
+      this.pickPatrolTarget(d);
+    }
+  }
+
+  pointBeam(d, target, opacity, width, isShot = false) {
+    _v1.set(d.position.x, d.position.y - 0.4, d.position.z);
+    _v2.subVectors(target, _v1);
+    const len = _v2.length();
+    d.beam.position.copy(_v1);
+    d.beam.scale.set(width, len, width);
+    d.beam.quaternion.setFromUnitVectors(_up, _v2.normalize());
+    d.beamMat.opacity = opacity;
+    d.beamMat.color.setHex(isShot ? 0xff2244 : 0xff0033);
+    d.beam.visible = true;
+  }
+
+  avoidBuildings(d) {
+    for (const c of this.colliders) {
+      if (d.position.x > c.minX - 1.5 && d.position.x < c.maxX + 1.5 &&
+          d.position.z > c.minZ - 1.5 && d.position.z < c.maxZ + 1.5 &&
+          d.position.y < c.height + 2.5 && d.position.y > (c.minY || 0) - 2) {
+        d.position.y = c.height + 2.5;
+      }
+    }
   }
 
   emitSparks(pos) {
     for (let k = 0; k < 2; k++) {
-      const idx = this.sparkData.findIndex(s => !s.active);
-      if (idx !== -1) {
-        const s = this.sparkData[idx];
-        s.active = true;
-        s.x = pos.x + (Math.random() - 0.5) * 0.5;
-        s.y = pos.y + Math.random() * 0.5;
-        s.z = pos.z + (Math.random() - 0.5) * 0.5;
-        s.vx = (Math.random() - 0.5) * 4.0;
-        s.vy = 2.0 + Math.random() * 3.5;
-        s.vz = (Math.random() - 0.5) * 4.0;
-        s.life = 0.5 + Math.random() * 0.3;
-      }
+      const s = this.sparkData[this.sparkCursor];
+      this.sparkCursor = (this.sparkCursor + 1) % this.sparkCount;
+      s.active = true;
+      s.x = pos.x + (Math.random() - 0.5) * 0.5;
+      s.y = pos.y + Math.random() * 0.5;
+      s.z = pos.z + (Math.random() - 0.5) * 0.5;
+      s.vx = (Math.random() - 0.5) * 4;
+      s.vy = 2 + Math.random() * 3.5;
+      s.vz = (Math.random() - 0.5) * 4;
+      s.life = 0.5 + Math.random() * 0.3;
     }
   }
 
   updateSparks(delta) {
-    if (!this.sparkPoints) return;
     const pos = this.sparkPoints.geometry.attributes.position.array;
-
-    this.sparkData.forEach((s, i) => {
-      if (s.active) {
-        s.vy -= 9.8 * delta; // gravity
-        s.x += s.vx * delta;
-        s.y += s.vy * delta;
-        s.z += s.vz * delta;
-        s.life -= delta;
-
-        pos[i * 3] = s.x;
-        pos[i * 3 + 1] = s.y;
-        pos[i * 3 + 2] = s.z;
-
-        if (s.life <= 0 || s.y < 0) {
-          s.active = false;
-          pos[i * 3 + 1] = -999;
-        }
-      }
-    });
-
-    this.sparkPoints.geometry.attributes.position.needsUpdate = true;
+    let any = false;
+    for (let i = 0; i < this.sparkCount; i++) {
+      const s = this.sparkData[i];
+      if (!s.active) continue;
+      any = true;
+      s.vy -= 9.8 * delta;
+      s.x += s.vx * delta; s.y += s.vy * delta; s.z += s.vz * delta;
+      s.life -= delta;
+      if (s.life <= 0 || s.y < 0) { s.active = false; pos[i * 3 + 1] = -999; continue; }
+      pos[i * 3] = s.x; pos[i * 3 + 1] = s.y; pos[i * 3 + 2] = s.z;
+    }
+    if (any || this._sparksWereActive) this.sparkPoints.geometry.attributes.position.needsUpdate = true;
+    this._sparksWereActive = any;
   }
 
+  /** Screen-edge arrows for off-screen drones (pooled DOM nodes). */
   updateScreenIndicators(camera) {
     if (!this.edgeArrowsContainer || !camera) return;
+    const w = window.innerWidth, h = window.innerHeight;
+    let used = 0;
 
-    // Remove old arrow elements
-    this.edgeArrowsContainer.innerHTML = '';
+    for (const d of this.drones) {
+      _v1.copy(d.position).project(camera);
+      const behind = _v1.z > 1;
+      const off = behind || _v1.x < -0.9 || _v1.x > 0.9 || _v1.y < -0.9 || _v1.y > 0.9;
+      if (!off) continue;
 
-    const width = window.innerWidth;
-    const height = window.innerHeight;
-
-    this.drones.forEach(d => {
-      const screenPos = d.position.clone().project(camera);
-      // If drone is behind camera or off-screen, show edge arrow
-      const isOffscreen = screenPos.z > 1.0 || screenPos.x < -0.9 || screenPos.x > 0.9 || screenPos.y < -0.9 || screenPos.y > 0.9;
-
-      if (isOffscreen) {
-        const arrow = document.createElement('div');
-        arrow.className = 'drone-edge-arrow';
-
-        // Calculate clamped screen position
-        let x = (screenPos.x * 0.5 + 0.5) * width;
-        let y = (-screenPos.y * 0.5 + 0.5) * height;
-
-        if (screenPos.z > 1.0) {
-          x = width - x;
-          y = height - y;
-        }
-
-        const margin = 28;
-        x = Math.max(margin, Math.min(width - margin, x));
-        y = Math.max(margin, Math.min(height - margin, y));
-
-        // Arrow angle pointing toward drone
-        const angle = Math.atan2(y - height / 2, x - width / 2);
-        arrow.style.left = `${x}px`;
-        arrow.style.top = `${y}px`;
-        arrow.style.transform = `translate(-50%, -50%) rotate(${angle}rad)`;
-
-        this.edgeArrowsContainer.appendChild(arrow);
+      let el = this.arrowPool[used];
+      if (!el) {
+        el = document.createElement('div');
+        el.className = 'drone-edge-arrow';
+        this.edgeArrowsContainer.appendChild(el);
+        this.arrowPool.push(el);
       }
-    });
+      used++;
+
+      let x = (_v1.x * 0.5 + 0.5) * w;
+      let y = (-_v1.y * 0.5 + 0.5) * h;
+      if (behind) { x = w - x; y = h - y; }
+      x = Math.max(28, Math.min(w - 28, x));
+      y = Math.max(28, Math.min(h - 28, y));
+      const angle = Math.atan2(y - h / 2, x - w / 2);
+      el.style.display = 'block';
+      el.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%) rotate(${angle}rad)`;
+      el.classList.toggle('engaged', d.state === 'CHASE' || d.state === 'ALERT');
+    }
+    for (let i = used; i < this.arrowPool.length; i++) this.arrowPool[i].style.display = 'none';
   }
 
   reset() {
-    this.drones.forEach(d => {
-      if (d.group) {
-        this.scene.remove(d.group);
-        d.group.traverse(child => {
-          if (child.isMesh) {
-            child.geometry?.dispose();
-            child.material?.dispose();
-          }
-        });
-      }
-      if (d.beam) {
-        this.scene.remove(d.beam);
-        d.beam.geometry?.dispose();
-        d.beam.material?.dispose();
-      }
-      if (d.scanCone) {
-        this.scene.remove(d.scanCone);
-        d.scanCone.geometry?.dispose();
-        d.scanCone.material?.dispose();
-      }
-    });
-    this.drones = [];
-    this.waveTimer = 0;
-    this.currentWave = 0;
-    if (this.edgeArrowsContainer) {
-      this.edgeArrowsContainer.innerHTML = '';
+    for (const d of this.drones) {
+      this.scene.remove(d.group);
+      this.scene.remove(d.beam);
+      d.eyeMat.dispose();
+      d.beamMat.dispose();
     }
+    this.drones = [];
+    this.spawnTimer = 0;
+    this.arrowPool.forEach(el => { el.style.display = 'none'; });
+    if (this.chipDrone) this.chipDrone.hidden = true;
+    if (this.audio && this.audio.setDroneProximity) this.audio.setDroneProximity(Infinity, false);
   }
 }

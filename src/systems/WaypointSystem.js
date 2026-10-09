@@ -29,6 +29,10 @@ export class WaypointSystem {
     this.beaconRing = null;
     this.beaconGem = null;
 
+    this._proj = new THREE.Vector3();
+    this._fwd = new THREE.Vector3();
+    this._to = new THREE.Vector3();
+
     // 2D DOM HUD Elements
     this.initDOM();
 
@@ -99,6 +103,7 @@ export class WaypointSystem {
         return;
       }
 
+      if (e.repeat || (this.canUse && !this.canUse())) return;
       if (e.code === 'KeyT') {
         this.targetNearestWater();
       } else if (e.code === 'KeyG') {
@@ -266,8 +271,9 @@ export class WaypointSystem {
     const targetPos = this.activeWaypoint.position;
 
     // 1. Distance Calculation
-    const distSq = (playerPos.x - targetPos.x) ** 2 + (playerPos.z - targetPos.z) ** 2;
-    const dist = Math.sqrt(distSq);
+    const dy = targetPos.y - (playerPos.y - 0.9);
+    const dist = Math.sqrt((playerPos.x - targetPos.x) ** 2 + (playerPos.z - targetPos.z) ** 2 + dy * dy);
+    this.heightHint = dy > 3 ? ` ▲${Math.round(dy)}m` : '';
 
     // 2. Auto-Clear Checks:
     // A. Player within 3.0 units
@@ -319,18 +325,17 @@ export class WaypointSystem {
 
     const w = window.innerWidth;
     const h = window.innerHeight;
-    const distText = `${Math.round(distanceMeters)}m`;
+    const distText = `${Math.round(distanceMeters)}m${this.heightHint || ''}`;
 
     // 3D Point to Screen Projection
-    const proj = targetPos.clone();
+    const proj = this._proj.copy(targetPos);
     proj.y += 2.0; // Anchor point slightly above ground
     proj.project(this.camera);
 
     // Vector from camera to target in world space to test behind camera
-    const camPos = this.camera.position;
-    const camForward = new THREE.Vector3();
+    const camForward = this._fwd;
     this.camera.getWorldDirection(camForward);
-    const toTarget = targetPos.clone().sub(camPos);
+    const toTarget = this._to.copy(targetPos).sub(this.camera.position);
     const isBehind = toTarget.dot(camForward) <= 0;
 
     // Convert NDC (-1 to 1) to screen pixels

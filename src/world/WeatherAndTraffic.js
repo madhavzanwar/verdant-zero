@@ -2,10 +2,12 @@ import * as THREE from 'three';
 
 /**
  * Heavy Rain & Flying Sky Traffic Systems
- * - 4,500 instanced rain streaks responding to wind vector
+ * - 2,000 GPU-animated rain streaks drifting with the wind, following the camera
  * - Tiny splash ripple particles on street & rooftops
  * - Distant flying vehicles on curved spline routes with 3 distinct speeds for parallax
  */
+
+const RAIN_BOX = 200;
 
 export class WeatherAndTraffic {
   constructor(scene) {
@@ -22,56 +24,88 @@ export class WeatherAndTraffic {
   }
 
   initRain() {
-    // 2,000 continuous rain streaks using LineSegments for optimal laptop performance
-    this.rainGeo = new THREE.BufferGeometry();
-    const positions = new Float32Array(this.maxRainCount * 6);
+    // Rain streaks animated entirely on the GPU: each streak stores a seed (x, z, phase, speed)
+    // and the vertex shader computes its position from uTime. Nothing is uploaded per frame.
+    const n = this.maxRainCount;
+    const seeds = new Float32Array(n * 2 * 4);
+    const ends = new Float32Array(n * 2);
+    const positions = new Float32Array(n * 2 * 3); // required by three; unused by the shader
 
-    this.rainData = [];
-
-    for (let i = 0; i < this.maxRainCount; i++) {
-      const x = (Math.random() - 0.5) * 200;
-      const y = Math.random() * 140;
-      const z = (Math.random() - 0.5) * 200;
-      const length = 2.4 + Math.random() * 1.8;
-
-      const idx = i * 6;
-      positions[idx] = x;
-      positions[idx + 1] = y;
-      positions[idx + 2] = z;
-
-      // React to wind vector
-      positions[idx + 3] = x + this.wind.x * 0.4;
-      positions[idx + 4] = y - length;
-      positions[idx + 5] = z + this.wind.z * 0.4;
-
-      this.rainData.push({
-        x, y, z,
-        length,
-        speed: 85 + Math.random() * 45
-      });
+    for (let i = 0; i < n; i++) {
+      const x = (Math.random() - 0.5) * RAIN_BOX;
+      const z = (Math.random() - 0.5) * RAIN_BOX;
+      const phase = Math.random();
+      const speed = 85 + Math.random() * 45;
+      for (let e = 0; e < 2; e++) {
+        const v = i * 2 + e;
+        seeds.set([x, z, phase, speed], v * 4);
+        ends[v] = e;
+      }
     }
 
+    this.rainGeo = new THREE.BufferGeometry();
     this.rainGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    this.rainGeo.setAttribute('aSeed', new THREE.BufferAttribute(seeds, 4));
+    this.rainGeo.setAttribute('aEnd', new THREE.BufferAttribute(ends, 1));
 
-    const rainMat = new THREE.LineBasicMaterial({
-      color: 0xa8c4e8,
+    this.rainUniforms = {
+      uTime: { value: 0 },
+      uCenter: { value: new THREE.Vector3() },
+      uColor: { value: new THREE.Color(0xa8c4e8) },
+      uOpacity: { value: 0.16 },
+      uWind: { value: new THREE.Vector2(this.wind.x, this.wind.z) }
+    };
+
+    const rainMat = new THREE.ShaderMaterial({
+      uniforms: this.rainUniforms,
       transparent: true,
-      opacity: 0.16,
+      depthWrite: false,
       blending: THREE.AdditiveBlending,
-      depthWrite: false
+      vertexShader: /* glsl */ `
+        attribute vec4 aSeed;
+        attribute float aEnd;
+        uniform float uTime;
+        uniform vec3 uCenter;
+        uniform vec2 uWind;
+        const float BOX = ${RAIN_BOX.toFixed(1)};
+        const float HEIGHT = 150.0;
+        void main() {
+          float fall = aSeed.w;
+          float y = HEIGHT - mod(aSeed.z * HEIGHT + uTime * fall, HEIGHT);
+          float drift = (HEIGHT - y) / fall * 25.0;
+          vec2 xz = aSeed.xy + uWind * drift;
+          // Wrap the streak into a box that follows the camera
+          xz = uCenter.xz + mod(xz - uCenter.xz + BOX * 0.5, BOX) - BOX * 0.5;
+          float len = 2.4 + fract(aSeed.z * 13.7) * 1.8;
+          vec3 p = vec3(xz.x + uWind.x * 0.4 * aEnd, y - len * aEnd, xz.y + uWind.y * 0.4 * aEnd);
+          gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
+        }
+      `,
+      fragmentShader: /* glsl */ `
+        uniform vec3 uColor;
+        uniform float uOpacity;
+        void main() {
+          gl_FragColor = vec4(uColor * uOpacity, 1.0);
+        }
+      `
     });
 
     this.rainLines = new THREE.LineSegments(this.rainGeo, rainMat);
+    this.rainLines.frustumCulled = false;
     this.scene.add(this.rainLines);
+  }
+
+  setFocus(position) {
+    this.focus = position;
   }
 
   setQuality(tier) {
     if (tier === 'low') {
       this.activeRainCount = 1000;
     } else if (tier === 'medium') {
-      this.activeRainCount = 1800;
+      this.activeRainCount = 1600;
     } else {
-      this.activeRainCount = 2000;
+      this.activeRainCount = this.maxRainCount;
     }
     if (this.rainGeo) {
       this.rainGeo.setDrawRange(0, this.activeRainCount * 2);
@@ -79,15 +113,9 @@ export class WeatherAndTraffic {
   }
 
   setRainAcidic(isAcidic) {
-    if (this.rainLines && this.rainLines.material) {
-      if (isAcidic) {
-        this.rainLines.material.color.setHex(0xb2d92b);
-        this.rainLines.material.opacity = 0.28;
-      } else {
-        this.rainLines.material.color.setHex(0xa8c4e8);
-        this.rainLines.material.opacity = 0.16;
-      }
-    }
+    if (!this.rainUniforms) return;
+    this.rainUniforms.uColor.value.setHex(isAcidic ? 0xb2d92b : 0xa8c4e8);
+    this.rainUniforms.uOpacity.value = isAcidic ? 0.32 : 0.16;
   }
 
   initSplashRipples() {
@@ -126,6 +154,7 @@ export class WeatherAndTraffic {
     }
 
     this.rippleMesh.instanceMatrix.needsUpdate = true;
+    this.rippleMesh.frustumCulled = false;
     this.scene.add(this.rippleMesh);
   }
 
@@ -194,35 +223,10 @@ export class WeatherAndTraffic {
   }
 
   update(delta, time) {
-    // 1. Animate Rain System with Wind Reaction
-    if (this.rainLines && this.rainData) {
-      const pos = this.rainLines.geometry.attributes.position.array;
-      const count = this.activeRainCount;
-
-      for (let i = 0; i < count; i++) {
-        const r = this.rainData[i];
-        r.y -= r.speed * delta;
-        r.x += this.wind.x * delta * 25;
-        r.z += this.wind.z * delta * 25;
-
-        // Reset to top when hitting the ground
-        if (r.y < 0) {
-          r.y = 120 + Math.random() * 30;
-          r.x = (Math.random() - 0.5) * 200;
-          r.z = (Math.random() - 0.5) * 200;
-        }
-
-        const idx = i * 6;
-        pos[idx] = r.x;
-        pos[idx + 1] = r.y;
-        pos[idx + 2] = r.z;
-
-        pos[idx + 3] = r.x + this.wind.x * 0.4;
-        pos[idx + 4] = r.y - r.length;
-        pos[idx + 5] = r.z + this.wind.z * 0.4;
-      }
-
-      this.rainLines.geometry.attributes.position.needsUpdate = true;
+    // 1. Rain (GPU) — just advance time and follow the camera focus
+    if (this.rainUniforms) {
+      this.rainUniforms.uTime.value = time;
+      if (this.focus) this.rainUniforms.uCenter.value.copy(this.focus);
     }
 
     // 2. Animate Splash Ripples
@@ -235,8 +239,10 @@ export class WeatherAndTraffic {
 
         if (rip.scale > rip.maxScale) {
           rip.scale = 0.1;
-          rip.x = (Math.random() - 0.5) * 120;
-          rip.z = (Math.random() - 0.5) * 120;
+          const cx = this.focus ? this.focus.x : 0;
+          const cz = this.focus ? this.focus.z : 0;
+          rip.x = cx + (Math.random() - 0.5) * 60;
+          rip.z = cz + (Math.random() - 0.5) * 60;
         }
 
         dummy.position.set(rip.x, rip.y, rip.z);

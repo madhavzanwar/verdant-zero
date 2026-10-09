@@ -1,497 +1,478 @@
 import * as THREE from 'three';
+import { showToast } from '../ui/Toasts.js';
 
 /**
- * Survival & Player Mechanics Manager
- * - Health system (100 HP, slow regeneration after 5s without damage, red hit flash)
- * - Water resource system (0-100 water, 20 per seed, 6 glowing blue droplets spawned, magnetic pull, blue arrow indicator)
- * - Light pulse ability (Q / Right Click, 5s cooldown, expanding ring, pushes smog 12m, distracts drones 25m)
- * - Acid rain event cycle (every 60-90s, 5s warning, 15s duration, sickly yellow-green sky/rain, upward raycast cover detection)
+ * Survival & Player Resources
+ * - Health 100. Regenerates 5 HP/s after 5s without damage.
+ * - Water 100 (4 seeds × 25). Water drops (+25) spawn on walkable ground, skyways and alleys.
+ * - Light Pulse: 15m radius, clears smog, stuns drones for 6s, 10s cooldown.
+ * - Acid rain cycle: warning (6s) → storm (14s), every 70–100s. 6 HP/s unless sheltered under a
+ *   skyway or awning. Damages growing vines.
+ * - Smog: density > 0.22 drains health continuously (no hit flash), slows the robot.
+ * - Discrete hits (drone lasers) flash the screen, play the hit sound and break the combo.
  */
 
+const SEED_COST = 25;
+const MAX_DROPS = 8;
+const DROP_LIFETIME = 60;
+const PULSE_RADIUS = 15;
+const PULSE_COOLDOWN = 10;
+const STUN_DURATION = 6;
+
 export class SurvivalManager {
-  constructor(scene, colliders, audioManager, scoreManager = null) {
+  constructor(scene, city, audioManager, scoreManager = null) {
     this.scene = scene;
-    this.colliders = colliders;
+    this.city = city;
+    this.colliders = city.buildingColliders;
+    this.shelters = city.shelters || [];
     this.audio = audioManager;
     this.scoreManager = scoreManager;
+    this.plantSystem = null;
 
-    // 1. Health State
     this.maxHealth = 100;
-    this.health = 100;
-    this.timeSinceDamage = 0;
-
-    // 2. Water Resource State
     this.maxWater = 100;
-    this.water = 100; // Starts full
-    this.seedCost = 20;
+    this.seedCost = SEED_COST;
+    this.pulseCooldown = PULSE_COOLDOWN;
+    this.pulseRadius = PULSE_RADIUS;
 
-    // Droplets pool
     this.waterDrops = [];
-    this.dropSpawnTimer = 0;
-    this.maxDrops = 6;
-    this.initWaterDropMesh();
+    this.nextDropId = 1;
 
-    // 3. Light Pulse Ability State
-    this.pulseCooldown = 5.0;
-    this.pulseTimer = 0.0;
-    this.initPulseVisual();
-
-    // 4. Acid Rain Cycle State
-    this.acidRainInterval = 75.0; // every ~75 seconds
-    this.acidRainTimer = 0.0;
-    this.acidWarningDuration = 5.0;
-    this.acidEventDuration = 15.0;
-    this.acidState = 'IDLE'; // 'IDLE' | 'WARNING' | 'ACTIVE'
-    this.acidStateTimer = 0.0;
-
-    // Raycaster for upward overhang protection
-    this.raycaster = new THREE.Raycaster();
-    this.upVector = new THREE.Vector3(0, 1, 0);
     this._pullDir = new THREE.Vector3();
+    this._fogBase = new THREE.Color(0x281648);
+    this._fogAcid = new THREE.Color(0x3a4a18);
 
-    // 5. HUD DOM References
-    this.healthBar = document.getElementById('health-bar-fill');
-    this.waterBar = document.getElementById('water-bar-fill');
-    this.healthVal = document.getElementById('health-val');
-    this.waterVal = document.getElementById('water-val');
-    this.healthContainer = document.getElementById('health-container');
-    this.waterContainer = document.getElementById('water-container');
-    this.pulseRing = document.getElementById('pulse-cooldown-circle');
-    this.damageFlashEl = document.getElementById('damage-flash');
-    this.smogOverlayEl = document.getElementById('smog-overlay');
-    this.acidWarningEl = document.getElementById('acid-warning');
-    this.waterArrowEl = document.getElementById('water-indicator-arrow');
-
-    // Spawn initial water droplets
-    for (let i = 0; i < 4; i++) {
-      this.spawnWaterDrop();
-    }
+    this.initWaterDropVisuals();
+    this.initPulseVisual();
+    this.cacheDOM();
+    this.reset();
   }
+
+  setPlantSystem(ps) {
+    this.plantSystem = ps;
+  }
+
+  cacheDOM() {
+    const $ = id => document.getElementById(id);
+    this.healthBar = $('health-bar-fill');
+    this.waterBar = $('water-bar-fill');
+    this.hoverBar = $('hover-bar-fill');
+    this.healthVal = $('health-val');
+    this.waterVal = $('water-val');
+    this.healthContainer = $('health-container');
+    this.waterContainer = $('water-container');
+    this.seedPips = $('seed-pips');
+    this.pulseRing = $('pulse-cooldown-circle');
+    this.pulseCdText = $('pulse-cd-text');
+    this.pulseBtn = $('pulse-ability');
+    this.dashRing = $('dash-cooldown-circle');
+    this.dashBtn = $('dash-ability');
+    this.damageFlashEl = $('damage-flash');
+    this.smogOverlayEl = $('smog-overlay');
+    this.acidOverlayEl = $('acid-overlay');
+    this.chipAcid = $('chip-acid');
+    this.chipSmog = $('chip-smog');
+
+    if (this.seedPips && this.seedPips.children.length === 0) {
+      for (let i = 0; i < this.maxWater / SEED_COST; i++) {
+        const pip = document.createElement('i');
+        pip.className = 'seed-pip';
+        this.seedPips.appendChild(pip);
+      }
+    }
+    this._hud = {};
+  }
+
+  // ---------------------------------------------------------------------------
+  // Visuals
+  // ---------------------------------------------------------------------------
 
   initPulseVisual() {
-    const ringGeo = new THREE.RingGeometry(0.5, 1.2, 32);
-    const ringMat = new THREE.MeshBasicMaterial({
-      color: 0x00ffff,
-      transparent: true,
-      opacity: 0.0,
-      side: THREE.DoubleSide,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false
-    });
-    this.pulseMesh = new THREE.Mesh(ringGeo, ringMat);
-    this.pulseMesh.rotation.x = -Math.PI / 2;
-    this.pulseMesh.position.y = 0.1;
+    const ringGeo = new THREE.RingGeometry(0.85, 1.0, 64).rotateX(-Math.PI / 2);
+    this.pulseMesh = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({
+      color: 0x33ffaa, transparent: true, opacity: 0, side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending, depthWrite: false
+    }));
+    this.pulseMesh.visible = false;
     this.scene.add(this.pulseMesh);
-    this.activePulseAnim = null;
+
+    // Inner flash disc
+    const discGeo = new THREE.CircleGeometry(1, 48).rotateX(-Math.PI / 2);
+    this.pulseDisc = new THREE.Mesh(discGeo, new THREE.MeshBasicMaterial({
+      color: 0x11cc77, transparent: true, opacity: 0, side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending, depthWrite: false
+    }));
+    this.pulseDisc.visible = false;
+    this.scene.add(this.pulseDisc);
+    this.activePulse = null;
   }
 
-  initWaterDropMesh() {
-    this.dropGeo = new THREE.SphereGeometry(0.35, 16, 16);
+  initWaterDropVisuals() {
+    this.dropGeo = new THREE.SphereGeometry(0.35, 16, 12);
     this.dropMat = new THREE.MeshStandardMaterial({
-      color: 0x00d0ff,
-      roughness: 0.1,
-      metalness: 0.9,
-      emissive: 0x0077ff,
-      emissiveIntensity: 0.8
+      color: 0x00d0ff, roughness: 0.1, metalness: 0.6, emissive: 0x0077ff, emissiveIntensity: 1.1
     });
-
-    this.dropRingGeo = new THREE.RingGeometry(0.5, 0.65, 24);
+    this.dropRingGeo = new THREE.RingGeometry(0.5, 0.65, 24).rotateX(-Math.PI / 2);
     this.dropRingMat = new THREE.MeshBasicMaterial({
-      color: 0x00e0ff,
-      transparent: true,
-      opacity: 0.8,
-      side: THREE.DoubleSide,
-      blending: THREE.AdditiveBlending
+      color: 0x00e0ff, transparent: true, opacity: 0.8, side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending, depthWrite: false
     });
+    this.dropBeamGeo = new THREE.CylinderGeometry(0.05, 0.25, 6, 8, 1, true).translate(0, 3, 0);
+    this.dropBeamMat = new THREE.MeshBasicMaterial({
+      color: 0x00b8ff, transparent: true, opacity: 0.22, side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending, depthWrite: false
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Water drops
+  // ---------------------------------------------------------------------------
+
+  isInsideCollider(x, y, z, pad = 1.0) {
+    for (const c of this.colliders) {
+      if (x > c.minX - pad && x < c.maxX + pad && z > c.minZ - pad && z < c.maxZ + pad &&
+          y < c.height + 0.5 && y > (c.minY || 0) - 1.5) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  pickDropLocation() {
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const roll = Math.random();
+      let x, y = 0.9, z;
+      if (roll < 0.55) {
+        // Street & sidewalks
+        x = (Math.random() - 0.5) * 28;
+        z = (Math.random() - 0.5) * 256;
+      } else if (roll < 0.75) {
+        // Alleys (6m gaps between towers every 24m)
+        const alleys = [-120, -96, -72, -48, -24, 0, 24, 48, 72, 96, 120];
+        z = alleys[Math.floor(Math.random() * alleys.length)];
+        x = (Math.random() < 0.5 ? -1 : 1) * (18 + Math.random() * 12);
+      } else if (roll < 0.9 && this.city.spotMeshes) {
+        // Near an elevated planter (skyway / garden roof) so high routes stay worth it
+        const high = this.city.spotMeshes.filter(s => s.data.y > 1);
+        const s = high[Math.floor(Math.random() * high.length)].data;
+        x = s.x + (Math.random() - 0.5) * 5;
+        z = s.z + (Math.random() - 0.5) * 3;
+        y = s.y + 0.8;
+      } else {
+        // Outer district
+        x = (Math.random() < 0.5 ? -1 : 1) * (38 + Math.random() * 14);
+        z = (Math.random() - 0.5) * 220;
+      }
+      if (y < 2 && this.isInsideCollider(x, y, z)) continue;
+      return { x, y, z };
+    }
+    return { x: (Math.random() - 0.5) * 10, y: 0.9, z: (Math.random() - 0.5) * 100 };
   }
 
   spawnWaterDrop() {
-    if (this.waterDrops.length >= this.maxDrops) return;
-
-    // Pick location on street or rooftop
-    const isRooftop = Math.random() < 0.45;
-    let x, y, z;
-
-    if (isRooftop && this.colliders.length > 0) {
-      const b = this.colliders[Math.floor(Math.random() * Math.min(25, this.colliders.length))];
-      x = (b.minX + b.maxX) / 2 + (Math.random() - 0.5) * 4;
-      z = (b.minZ + b.maxZ) / 2 + (Math.random() - 0.5) * 4;
-      y = b.height + 0.6;
-    } else {
-      x = (Math.random() - 0.5) * 60;
-      z = (Math.random() - 0.5) * 120;
-      y = 0.6;
-    }
+    if (this.waterDrops.length >= MAX_DROPS) return;
+    const { x, y, z } = this.pickDropLocation();
 
     const group = new THREE.Group();
     group.position.set(x, y, z);
-
     const sphere = new THREE.Mesh(this.dropGeo, this.dropMat);
-    group.add(sphere);
-
     const ring = new THREE.Mesh(this.dropRingGeo, this.dropRingMat);
-    ring.rotation.x = -Math.PI / 2;
-    ring.position.y = -0.4;
-    group.add(ring);
-
+    ring.position.y = -0.45;
+    const beam = new THREE.Mesh(this.dropBeamGeo, this.dropBeamMat);
+    beam.position.y = -0.4;
+    group.add(sphere, ring, beam);
     this.scene.add(group);
-    this.waterDrops.push({
-      group,
-      sphere,
-      ring,
-      baseY: y,
-      pos: new THREE.Vector3(x, y, z)
-    });
+
+    this.waterDrops.push({ id: `drop_${this.nextDropId++}`, group, sphere, ring, baseY: y, life: DROP_LIFETIME, maxLife: DROP_LIFETIME });
   }
 
+  removeDrop(i) {
+    const drop = this.waterDrops[i];
+    this.scene.remove(drop.group); // geometry & materials are shared — never dispose here
+    this.waterDrops.splice(i, 1);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Abilities & damage
+  // ---------------------------------------------------------------------------
+
   triggerLightPulse(origin, smogSystem, droneSystem) {
-    if (this.pulseTimer > 0) return false;
-
-    this.pulseTimer = this.pulseCooldown;
-
-    // 1. Expanding Visual Wave
-    this.activePulseAnim = {
-      origin: origin.clone(),
-      radius: 0.5,
-      maxRadius: 13.0,
-      life: 0.6
-    };
-    this.pulseMesh.position.copy(origin);
-    this.pulseMesh.position.y = Math.max(0.1, origin.y - 0.5);
-
-    // 2. Play Audio Cue
-    if (this.audio) {
-      this.audio.playLightPulse();
+    if (this.pulseTimer > 0) {
+      if (this.audio) this.audio.playDeniedSound();
+      return false;
     }
+    this.pulseTimer = PULSE_COOLDOWN;
 
-    // 3. Clear Smog within 12 units
-    if (smogSystem) {
-      smogSystem.clearRadius(origin.x, origin.z, 12.0, 4.5);
-    }
+    this.activePulse = { radius: 0.5, life: 1.0 };
+    this.pulseMesh.position.set(origin.x, origin.y - 0.75, origin.z);
+    this.pulseDisc.position.copy(this.pulseMesh.position);
+    this.pulseMesh.visible = true;
+    this.pulseDisc.visible = true;
 
-    // 4. Distract Drones within 25 units
-    let distracted = 0;
+    if (this.audio) this.audio.playLightPulse();
+    if (smogSystem) smogSystem.clearRadius(origin.x, origin.z, PULSE_RADIUS, 5.0);
+
+    let stunned = 0;
     if (droneSystem) {
-      distracted = droneSystem.distractDrones(origin, 25.0, 3.0);
-      if (distracted > 0 && this.scoreManager) {
-        this.scoreManager.recordDroneEvaded(distracted);
+      stunned = droneSystem.stunDrones(origin, PULSE_RADIUS + 3, STUN_DURATION);
+      if (stunned > 0) {
+        if (this.scoreManager) this.scoreManager.recordDronesStunned(stunned);
+        showToast(stunned === 1 ? 'Drone stunned' : `${stunned} drones stunned`, 'good', 1600);
       }
     }
-
-    return { success: true, distractedDrones: distracted };
+    return { stunned };
   }
 
   canAffordPlant() {
-    return this.water >= this.seedCost;
+    return this.water >= SEED_COST;
   }
 
   consumeWaterForSeed() {
-    if (this.water >= this.seedCost) {
-      this.water -= this.seedCost;
-      this.updateHUD();
-      return true;
-    }
-    return false;
+    if (this.water < SEED_COST) return false;
+    this.water -= SEED_COST;
+    return true;
   }
 
-  notifyDeniedPlanting(robot) {
-    if (this.audio) {
-      this.audio.playDeniedSound();
-    }
-    // Shake robot eye
-    if (robot) {
-      robot.eyeMesh.position.x += (Math.random() - 0.5) * 0.15;
-    }
+  notifyDeniedPlanting() {
+    if (this.audio) this.audio.playDeniedSound();
+    showToast('Not enough water — press T to find some', 'bad', 2000);
   }
 
-  applyDamage(amount) {
+  /** Discrete hit (drone laser). */
+  applyHit(amount) {
+    if (this.health <= 0) return;
     this.health = Math.max(0, this.health - amount);
     this.timeSinceDamage = 0;
-
-    if (this.scoreManager) {
-      this.scoreManager.onPlayerDamage();
-    }
-
-    // Red edge flash
+    if (this.scoreManager) this.scoreManager.breakCombo();
     if (this.damageFlashEl) {
       this.damageFlashEl.classList.remove('active');
-      void this.damageFlashEl.offsetWidth; // trigger reflow
+      void this.damageFlashEl.offsetWidth;
       this.damageFlashEl.classList.add('active');
     }
+    if (this.audio) this.audio.playPlayerHit();
+    this.checkDeath();
+  }
 
-    if (this.audio) {
-      this.audio.playPlayerHit();
+  /** Continuous damage over time (smog, acid). No flash; a soft thud at most every 0.7s. */
+  applyDrain(amount) {
+    if (this.health <= 0 || amount <= 0) return;
+    this.health = Math.max(0, this.health - amount);
+    this.timeSinceDamage = 0;
+    if (this.drainSoundTimer <= 0) {
+      this.drainSoundTimer = 0.7;
+      if (this.audio) this.audio.playDrainTick();
     }
+    this.checkDeath();
+  }
 
-    this.updateHUD();
-
+  checkDeath() {
     if (this.health <= 0 && this.scoreManager) {
-      this.scoreManager.triggerGameOver('Exhaustion', false);
+      this.scoreManager.triggerGameOver('health');
     }
   }
 
-  checkUnderCover(playerPos) {
-    // Upward raycast against building bounding boxes
-    for (let c of this.colliders) {
-      const withinX = playerPos.x >= c.minX && playerPos.x <= c.maxX;
-      const withinZ = playerPos.z >= c.minZ && playerPos.z <= c.maxZ;
-      if (withinX && withinZ && c.height > playerPos.y + 0.5) {
-        return true; // Sheltered under roof/building overhang
+  isSheltered(pos) {
+    for (const s of this.shelters) {
+      if (pos.x > s.minX && pos.x < s.maxX && pos.z > s.minZ && pos.z < s.maxZ && s.minY > pos.y) {
+        return true;
       }
     }
     return false;
   }
 
-  update(delta, gameTime, robot, smogSystem, droneSystem, weather, vines = [], camera) {
+  // ---------------------------------------------------------------------------
+  // Update
+  // ---------------------------------------------------------------------------
+
+  update(delta, gameTime, robot, smogSystem, weather, vines) {
     const playerPos = robot.position;
+    this.drainSoundTimer -= delta;
 
-    // 1. Health Regeneration (slowly regenerates after 5s without damage)
+    // Health regeneration
     this.timeSinceDamage += delta;
-    if (this.timeSinceDamage >= 5.0 && this.health < this.maxHealth) {
-      this.health = Math.min(this.maxHealth, this.health + delta * 6.5);
+    if (this.timeSinceDamage >= 5 && this.health < this.maxHealth) {
+      this.health = Math.min(this.maxHealth, this.health + delta * 5);
     }
 
-    // 2. Pulse Cooldown Timer
-    if (this.pulseTimer > 0) {
-      this.pulseTimer = Math.max(0, this.pulseTimer - delta);
-    }
-
-    // Animate Pulse Wave
-    if (this.activePulseAnim) {
-      this.activePulseAnim.radius += delta * 24.0;
-      this.activePulseAnim.life -= delta * 1.6;
-
-      const scale = this.activePulseAnim.radius;
-      this.pulseMesh.scale.set(scale, scale, 1);
-      this.pulseMesh.material.opacity = Math.max(0, this.activePulseAnim.life);
-
-      if (this.activePulseAnim.life <= 0) {
-        this.activePulseAnim = null;
-        this.pulseMesh.material.opacity = 0;
+    // Pulse cooldown & expanding ring
+    if (this.pulseTimer > 0) this.pulseTimer = Math.max(0, this.pulseTimer - delta);
+    if (this.activePulse) {
+      const p = this.activePulse;
+      p.radius = Math.min(PULSE_RADIUS, p.radius + delta * 30);
+      p.life -= delta * 1.4;
+      this.pulseMesh.scale.set(p.radius, 1, p.radius);
+      this.pulseDisc.scale.set(p.radius, 1, p.radius);
+      this.pulseMesh.material.opacity = Math.max(0, p.life);
+      this.pulseDisc.material.opacity = Math.max(0, p.life * 0.25);
+      if (p.life <= 0) {
+        this.activePulse = null;
+        this.pulseMesh.visible = false;
+        this.pulseDisc.visible = false;
       }
     }
 
-    // 3. Water Droplet Spawning & Magnetic Collection
-    this.dropSpawnTimer += delta;
-    const nextSpawnInterval = 8.0 + Math.random() * 4.0; // 8-12 seconds
-    if (this.dropSpawnTimer > nextSpawnInterval) {
-      this.dropSpawnTimer = 0;
+    // Water drops: keep the city stocked
+    this.dropSpawnTimer -= delta;
+    if (this.dropSpawnTimer <= 0 || this.waterDrops.length < 3) {
+      this.dropSpawnTimer = 5 + Math.random() * 3;
       this.spawnWaterDrop();
     }
 
-    // Water collection & magnetic pull
     for (let i = this.waterDrops.length - 1; i >= 0; i--) {
       const drop = this.waterDrops[i];
-      // Floating animation
-      drop.group.position.y = drop.baseY + Math.sin(gameTime * 3.5 + i) * 0.15;
-      drop.ring.rotation.z += delta * 1.5;
+      drop.life -= delta;
+      const g = drop.group.position;
+      g.y = drop.baseY + Math.sin(gameTime * 3.5 + i) * 0.15;
+      drop.ring.rotation.y += delta * 1.5;
+      const fade = drop.life < 5 ? (Math.sin(gameTime * 18) > 0 ? 1 : 0.2) : 1;
+      drop.sphere.visible = fade > 0.5;
 
-      const dist = drop.group.position.distanceTo(playerPos);
-
-      // Gentle magnetic pull
-      if (dist < 6.0) {
-        this._pullDir.subVectors(playerPos, drop.group.position).normalize();
-        drop.group.position.addScaledVector(this._pullDir, delta * 9.0);
+      const dx = playerPos.x - g.x, dy = playerPos.y - g.y, dz = playerPos.z - g.z;
+      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      if (dist < 5.0) {
+        this._pullDir.set(dx, dy, dz).normalize();
+        g.addScaledVector(this._pullDir, delta * 10.0);
+        drop.baseY += this._pullDir.y * delta * 10.0;
       }
 
-      // Collect when close
-      if (dist < 1.6) {
+      if (dist < 1.7) {
+        const before = this.water;
         this.water = Math.min(this.maxWater, this.water + 25);
-        if (this.audio) {
-          this.audio.playWaterCollect();
-        }
-        if (this.scoreManager) {
-          this.scoreManager.recordWaterCollected();
-        }
-        this.scene.remove(drop.group);
-        drop.group.traverse(child => {
-          if (child.isMesh) {
-            child.geometry?.dispose();
-            child.material?.dispose();
-          }
-        });
-        this.waterDrops.splice(i, 1);
+        if (this.audio) this.audio.playWaterCollect();
+        if (this.scoreManager) this.scoreManager.recordWaterCollected();
+        if (this.water === this.maxWater && before + 25 > this.maxWater) showToast('Tank full', 'info', 1000);
+        this.removeDrop(i);
+      } else if (drop.life <= 0) {
+        this.removeDrop(i);
       }
     }
 
-    // 4. Acid Rain Cycle
-    this.acidRainTimer += delta;
+    // Acid rain cycle
+    this.acidStateTimer += delta;
+    const fog = this.scene.fog;
     if (this.acidState === 'IDLE') {
-      if (this.acidRainTimer >= this.acidRainInterval) {
+      if (fog) fog.color.lerp(this._fogBase, Math.min(1, delta * 0.8));
+      if (this.acidStateTimer >= this.acidInterval) {
         this.acidState = 'WARNING';
         this.acidStateTimer = 0;
-        if (this.acidWarningEl) this.acidWarningEl.classList.add('visible');
         if (this.audio) this.audio.playAcidRainWarning();
+        showToast('Acid rain incoming — get under a skyway or awning', 'warn', 5000);
       }
     } else if (this.acidState === 'WARNING') {
-      this.acidStateTimer += delta;
-      // Telegraph: sky color shifts towards sickly yellow-green
-      if (this.scene && this.scene.fog) {
-        this.scene.fog.color.lerp(new THREE.Color(0x384a14), delta * 0.8);
-      }
-      if (this.acidStateTimer >= this.acidWarningDuration) {
+      if (fog) fog.color.lerp(this._fogAcid, Math.min(1, delta * 0.6));
+      if (this.acidStateTimer >= 6) {
         this.acidState = 'ACTIVE';
         this.acidStateTimer = 0;
-        if (this.acidWarningEl) this.acidWarningEl.classList.remove('visible');
         if (weather) weather.setRainAcidic(true);
         if (this.audio) this.audio.startAcidRainSound();
       }
     } else if (this.acidState === 'ACTIVE') {
-      this.acidStateTimer += delta;
-
-      // Damage player if exposed to acid rain
-      const isSheltered = this.checkUnderCover(playerPos);
-      if (!isSheltered) {
-        this.applyDamage(9.0 * delta);
-      }
-
-      // Damage young vines not fully grown
-      vines.forEach(v => {
-        if (v.growth < 0.85) {
-          v.health = Math.max(0, (v.health !== undefined ? v.health : 1.0) - delta * 0.12);
+      this.sheltered = this.isSheltered(playerPos);
+      if (!this.sheltered) this.applyDrain(6 * delta);
+      if (this.plantSystem) {
+        for (const v of vines) {
+          if (v.growth < 0.85) this.plantSystem.damageVine(v, delta * 0.05);
         }
-      });
-
-      if (this.acidStateTimer >= this.acidEventDuration) {
+      }
+      if (this.acidStateTimer >= 14) {
         this.acidState = 'IDLE';
-        this.acidRainTimer = 0;
+        this.acidStateTimer = 0;
+        this.acidInterval = 70 + Math.random() * 30;
         if (weather) weather.setRainAcidic(false);
         if (this.audio) this.audio.stopAcidRainSound();
-        if (this.scene && this.scene.fog) {
-          this.scene.fog.color.setHex(0x2a1650);
+        showToast('Acid rain has passed', 'info', 1800);
+      }
+    }
+
+    // Smog exposure
+    this.smogDensity = smogSystem ? smogSystem.getDensityAt(playerPos.x, playerPos.z) : 0;
+    const inSmog = this.smogDensity > 0.22 && playerPos.y < 20;
+    if (inSmog) {
+      this.applyDrain(this.smogDensity * 7 * delta);
+    }
+    robot.moveSpeedMultiplier = inSmog ? 1 - Math.min(0.35, this.smogDensity * 0.4) : 1;
+    this.inSmog = inSmog;
+
+    if (smogSystem && this.plantSystem) {
+      for (const v of vines) {
+        if (!v.matured && smogSystem.getDensityAt(v.pos.x, v.pos.z) > 0.28) {
+          this.plantSystem.damageVine(v, delta * 0.06);
         }
       }
     }
 
-    // 5. Update Smog Effects on Player & Vines
-    if (smogSystem) {
-      const smogDensity = smogSystem.getDensityAt(playerPos.x, playerPos.z);
-      if (smogDensity > 0.22) {
-        // Drain player health in smog
-        this.applyDamage(smogDensity * 6.5 * delta);
-        // Robot eye flickers in smog
-        if (robot && Math.random() < 0.3) {
-          robot.irisMat.color.setHex(0x1a8844);
-        }
-        if (this.smogOverlayEl) {
-          this.smogOverlayEl.style.opacity = (smogDensity * 0.65).toFixed(2);
-        }
-      } else {
-        if (this.smogOverlayEl) {
-          this.smogOverlayEl.style.opacity = '0';
-        }
-      }
-
-      // Smog drains vine health
-      vines.forEach(v => {
-        const vSmog = smogSystem.getDensityAt(v.pos.x, v.pos.z);
-        if (vSmog > 0.28) {
-          v.health = Math.max(0, (v.health !== undefined ? v.health : 1.0) - delta * 0.08);
-          // Withering effect: turn leaves gray
-          if (v.leaves) {
-            v.leaves.forEach(leaf => {
-              leaf.mesh.material.color.lerp(new THREE.Color(0x556055), delta * 0.5);
-            });
-          }
-        }
-      });
-    }
-
-    // 6. Update Water Drop Directional Arrow
-    this.updateWaterIndicator(playerPos, camera);
-
-    // 7. Update HUD Bars & Pulse Ring
-    this.updateHUD();
-
-    return {
-      isDead: this.health <= 0,
-      health: this.health,
-      water: this.water
-    };
+    if (this.audio) this.audio.setLowHealth(this.health > 0 && this.health < 25);
+    this.updateHUD(robot);
   }
 
-  updateWaterIndicator(playerPos, camera) {
-    if (!this.waterArrowEl || !camera) return;
-
-    // Find nearest water drop
-    let nearest = null;
-    let minDist = Infinity;
-    this.waterDrops.forEach(d => {
-      const dist = d.group.position.distanceTo(playerPos);
-      if (dist < minDist) {
-        minDist = dist;
-        nearest = d;
-      }
-    });
-
-    if (nearest && minDist > 3.0) {
-      this.waterArrowEl.classList.add('visible');
-      const screenPos = nearest.group.position.clone().project(camera);
-      const width = window.innerWidth;
-      const height = window.innerHeight;
-
-      let x = (screenPos.x * 0.5 + 0.5) * width;
-      let y = (-screenPos.y * 0.5 + 0.5) * height;
-
-      if (screenPos.z > 1.0) {
-        x = width - x;
-        y = height - y;
-      }
-
-      const margin = 32;
-      x = Math.max(margin, Math.min(width - margin, x));
-      y = Math.max(margin, Math.min(height - margin, y));
-
-      const angle = Math.atan2(y - height / 2, x - width / 2);
-      this.waterArrowEl.style.left = `${x}px`;
-      this.waterArrowEl.style.top = `${y}px`;
-      this.waterArrowEl.style.transform = `translate(-50%, -50%) rotate(${angle}rad)`;
-    } else {
-      this.waterArrowEl.classList.remove('visible');
-    }
+  /** True when planting now earns the risk bonus. */
+  isRisky(spotData, smogSystem) {
+    const smog = smogSystem ? smogSystem.getDensityAt(spotData.x, spotData.z) : 0;
+    return smog > 0.22 || this.acidState === 'ACTIVE';
   }
 
-  updateHUD() {
-    const healthPct = Math.max(0, Math.min(100, (this.health / this.maxHealth) * 100));
-    const waterPct = Math.max(0, Math.min(100, (this.water / this.maxWater) * 100));
-
-    if (this.healthBar) {
-      this.healthBar.style.width = `${healthPct}%`;
-    }
-    if (this.waterBar) {
-      this.waterBar.style.width = `${waterPct}%`;
-    }
-
-    if (this.healthVal) {
-      this.healthVal.textContent = `${Math.round(this.health)} / ${this.maxHealth}`;
-    }
-    if (this.waterVal) {
-      this.waterVal.textContent = `${Math.round(this.water)} / ${this.maxWater}`;
+  updateHUD(robot) {
+    const h = this._hud;
+    const health = Math.round(this.health);
+    if (h.health !== health) {
+      h.health = health;
+      if (this.healthBar) this.healthBar.style.transform = `scaleX(${this.health / this.maxHealth})`;
+      if (this.healthVal) this.healthVal.textContent = String(health);
+      this.healthContainer?.classList.toggle('low', this.health < 30);
     }
 
-    // Visually communicate low health clearly (glow/pulse warning state)
-    if (this.healthContainer) {
-      if (this.health < 30) {
-        this.healthContainer.classList.add('low-health');
-      } else {
-        this.healthContainer.classList.remove('low-health');
+    const water = Math.round(this.water);
+    if (h.water !== water) {
+      h.water = water;
+      if (this.waterBar) this.waterBar.style.transform = `scaleX(${this.water / this.maxWater})`;
+      if (this.waterVal) this.waterVal.textContent = String(water);
+      this.waterContainer?.classList.toggle('low', this.water < SEED_COST);
+      if (this.seedPips) {
+        const seeds = Math.floor(this.water / SEED_COST);
+        Array.from(this.seedPips.children).forEach((pip, i) => pip.classList.toggle('on', i < seeds));
       }
     }
 
-    // Visually communicate when water is insufficient for planting (< 20)
-    if (this.waterContainer) {
-      if (this.water < this.seedCost) {
-        this.waterContainer.classList.add('low-water');
-      } else {
-        this.waterContainer.classList.remove('low-water');
+    if (robot) {
+      const hover = Math.round(robot.hoverEnergy);
+      if (h.hover !== hover) {
+        h.hover = hover;
+        if (this.hoverBar) this.hoverBar.style.transform = `scaleX(${robot.hoverEnergy / robot.maxHoverEnergy})`;
+      }
+      const dashP = robot.dashCooldown > 0 ? 1 - robot.dashCooldownTimer / robot.dashCooldown : 1;
+      const dashKey = Math.round(dashP * 40);
+      if (h.dash !== dashKey) {
+        h.dash = dashKey;
+        if (this.dashRing) this.dashRing.style.strokeDashoffset = (113.1 * (1 - dashP)).toFixed(1);
+        this.dashBtn?.classList.toggle('ready', dashP >= 1);
       }
     }
 
-    if (this.pulseRing) {
-      const progress = 1.0 - (this.pulseTimer / this.pulseCooldown);
-      // SVG stroke-dashoffset: 2 * PI * r (r=18 -> 113.1)
-      const circumference = 113.1;
-      this.pulseRing.style.strokeDashoffset = (circumference * (1.0 - progress)).toString();
+    const pulseP = 1 - this.pulseTimer / PULSE_COOLDOWN;
+    const pulseKey = Math.round(pulseP * 60);
+    if (h.pulse !== pulseKey) {
+      h.pulse = pulseKey;
+      if (this.pulseRing) this.pulseRing.style.strokeDashoffset = (113.1 * (1 - pulseP)).toFixed(1);
+      this.pulseBtn?.classList.toggle('ready', pulseP >= 1);
+      if (this.pulseCdText) this.pulseCdText.textContent = this.pulseTimer > 0 ? String(Math.ceil(this.pulseTimer)) : '';
+    }
+
+    const acidKey = this.acidState === 'ACTIVE' ? (this.sheltered ? 'safe' : 'exposed') : (this.acidState === 'WARNING' ? 'warn' : '');
+    if (h.acid !== acidKey) {
+      h.acid = acidKey;
+      if (this.chipAcid) {
+        this.chipAcid.hidden = !acidKey;
+        this.chipAcid.textContent = acidKey === 'safe' ? 'Acid rain · Sheltered' : acidKey === 'exposed' ? 'Acid rain · Exposed!' : 'Acid rain incoming';
+        this.chipAcid.classList.toggle('safe', acidKey === 'safe');
+      }
+      this.acidOverlayEl?.classList.toggle('active', acidKey === 'exposed');
+    }
+
+    const smogKey = this.inSmog ? Math.round(this.smogDensity * 10) : 0;
+    if (h.smog !== smogKey) {
+      h.smog = smogKey;
+      if (this.chipSmog) this.chipSmog.hidden = !this.inSmog;
+      if (this.smogOverlayEl) this.smogOverlayEl.style.opacity = this.inSmog ? (this.smogDensity * 0.65).toFixed(2) : '0';
     }
   }
 
@@ -499,36 +480,27 @@ export class SurvivalManager {
     this.health = this.maxHealth;
     this.water = this.maxWater;
     this.timeSinceDamage = 0;
-    this.pulseTimer = 0.0;
+    this.drainSoundTimer = 0;
+    this.pulseTimer = 0;
     this.acidState = 'IDLE';
-    this.acidRainTimer = 0.0;
-    this.acidStateTimer = 0.0;
+    this.acidStateTimer = 0;
+    this.acidInterval = 75;
+    this.sheltered = false;
+    this.inSmog = false;
+    this.smogDensity = 0;
+    this.dropSpawnTimer = 4;
+    this.activePulse = null;
+    if (this.pulseMesh) { this.pulseMesh.visible = false; this.pulseDisc.visible = false; }
 
-    if (this.acidWarningEl) this.acidWarningEl.classList.remove('visible');
     if (this.damageFlashEl) this.damageFlashEl.classList.remove('active');
-    if (this.smogOverlayEl) this.smogOverlayEl.classList.remove('active');
+    if (this.smogOverlayEl) this.smogOverlayEl.style.opacity = '0';
+    if (this.acidOverlayEl) this.acidOverlayEl.classList.remove('active');
+    if (this.scene.fog) this.scene.fog.color.copy(this._fogBase);
 
-    if (this.scene && this.scene.fog) {
-      this.scene.fog.color.setHex(0x2a1650);
-    }
+    for (let i = this.waterDrops.length - 1; i >= 0; i--) this.removeDrop(i);
+    for (let i = 0; i < 6; i++) this.spawnWaterDrop();
 
-    // Remove and dispose remaining water drops
-    for (let drop of this.waterDrops) {
-      this.scene.remove(drop.group);
-      drop.group.traverse(child => {
-        if (child.isMesh) {
-          child.geometry?.dispose();
-          child.material?.dispose();
-        }
-      });
-    }
-    this.waterDrops = [];
-
-    // Spawn 4 fresh drops
-    for (let i = 0; i < 4; i++) {
-      this.spawnWaterDrop();
-    }
-
-    this.updateHUD();
+    this._hud = {};
+    this.updateHUD(null);
   }
 }

@@ -59,6 +59,12 @@ export class CameraController {
 
     // Smoothed target look point
     this.currentLookTarget = new THREE.Vector3();
+
+    // Scratch vectors (avoid per-frame allocations)
+    this._offset = new THREE.Vector3();
+    this._ideal = new THREE.Vector3();
+    this._look = new THREE.Vector3();
+    this._rayDir = new THREE.Vector3();
   }
 
   setColliders(colliders) {
@@ -101,17 +107,6 @@ export class CameraController {
 
     // Clamp pitch
     this.targetPitch = Math.max(this.minPitch, Math.min(this.maxPitch, this.targetPitch));
-  }
-
-  /**
-   * Fallback for mouse position when pointer lock is not active
-   */
-  handleScreenMouseFallback(normX, normY) {
-    if (this.mode !== 'GAMEPLAY') return;
-
-    // Gentle look offset based on screen position
-    const targetOffsetPitch = (this.invertY ? normY : -normY) * 0.5;
-    this.targetPitch = Math.max(this.minPitch, Math.min(this.maxPitch, targetOffsetPitch + 0.2));
   }
 
   startGameplayTransition(robotPos) {
@@ -176,9 +171,10 @@ export class CameraController {
     this.gameOverDistance += (this.targetGameOverDistance - this.gameOverDistance) * delta * 0.8;
     this.gameOverPitch += (this.targetGameOverPitch - this.gameOverPitch) * delta * 0.8;
 
-    const targetLook = robot.position.clone().add(new THREE.Vector3(0, 1.2, 0));
+    const targetLook = this._look.copy(robot.position);
+    targetLook.y += 1.2;
     const offset = this.calculateOrbitalOffset(this.yaw, this.gameOverPitch, this.gameOverDistance);
-    let idealPos = targetLook.clone().add(offset);
+    let idealPos = this._ideal.copy(targetLook).add(offset);
 
     idealPos = this.preventBuildingClipping(targetLook, idealPos);
     idealPos.y = Math.max(1.8, idealPos.y);
@@ -214,9 +210,10 @@ export class CameraController {
     const t = Math.min(1.0, this.transitionProgress);
     const ease = t * t * (3.0 - 2.0 * t);
 
-    const targetLook = robot.position.clone().add(new THREE.Vector3(0, 1.0, 0));
+    const targetLook = this._look.copy(robot.position);
+    targetLook.y += 1.0;
     const offset = this.calculateOrbitalOffset(this.yaw, this.pitch, this.baseDistance);
-    const desiredPos = targetLook.clone().add(offset);
+    const desiredPos = this._ideal.copy(targetLook).add(offset);
 
     this.camera.position.lerpVectors(this.startPos, desiredPos, ease);
     this.camera.lookAt(
@@ -237,7 +234,7 @@ export class CameraController {
     const sinYaw = Math.sin(yaw);
     const cosYaw = Math.cos(yaw);
 
-    return new THREE.Vector3(
+    return this._offset.set(
       sinYaw * cosPitch * distance,
       sinPitch * distance + 0.88,
       cosYaw * cosPitch * distance
@@ -266,15 +263,16 @@ export class CameraController {
     this.pitch += (this.targetPitch - this.pitch) * dampFactor;
 
     // 3. Smooth Third-Person Follow with subtle velocity look-ahead
-    const rawTargetLook = robot.position.clone().add(new THREE.Vector3(0, 0.72, 0));
+    const rawTargetLook = this._look.copy(robot.position);
+    rawTargetLook.y += 0.72;
     if (robot.velocity) {
       rawTargetLook.addScaledVector(robot.velocity, 0.035);
     }
     this.currentLookTarget.lerp(rawTargetLook, Math.min(1.0, delta * 16.0));
 
     // 4. Calculate Ideal Orbital Camera Position
-    let idealOffset = this.calculateOrbitalOffset(this.yaw, this.pitch, this.baseDistance);
-    let idealPos = this.currentLookTarget.clone().add(idealOffset);
+    const idealOffset = this.calculateOrbitalOffset(this.yaw, this.pitch, this.baseDistance);
+    let idealPos = this._ideal.copy(this.currentLookTarget).add(idealOffset);
 
     // 5. Building Collision Avoidance (camera smoothly pulls in, never clips)
     idealPos = this.preventBuildingClipping(this.currentLookTarget, idealPos);
@@ -308,7 +306,7 @@ export class CameraController {
    * Prevents camera from penetrating building walls
    */
   preventBuildingClipping(origin, target) {
-    const rayDir = target.clone().sub(origin);
+    const rayDir = this._rayDir.copy(target).sub(origin);
     const maxDist = rayDir.length();
     if (maxDist < 0.001) return target;
     rayDir.normalize();
@@ -324,7 +322,7 @@ export class CameraController {
     }
 
     if (closestDist < maxDist) {
-      return origin.clone().addScaledVector(rayDir, closestDist);
+      return target.copy(origin).addScaledVector(rayDir, closestDist);
     }
     return target;
   }
@@ -345,11 +343,11 @@ export class CameraController {
 
     // Y axis (ground to building height)
     if (Math.abs(dir.y) > 0.0001) {
-      const ty1 = (0 - origin.y) / dir.y;
+      const ty1 = ((box.minY || 0) - origin.y) / dir.y;
       const ty2 = (box.height - origin.y) / dir.y;
       tmin = Math.max(tmin, Math.min(ty1, ty2));
       tmax = Math.min(tmax, Math.max(ty1, ty2));
-    } else if (origin.y < 0 || origin.y > box.height) {
+    } else if (origin.y < (box.minY || 0) || origin.y > box.height) {
       return null;
     }
 

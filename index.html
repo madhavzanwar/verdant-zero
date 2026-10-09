@@ -2,367 +2,328 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Verdant Zero — a solarpunk robot gardener reclaims a dead cyberpunk megacity. Plant 28 planters before time runs out.">
+  <meta name="theme-color" content="#070912">
   <title>Verdant Zero</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="stylesheet" href="./src/styles/main.css">
-  <link rel="stylesheet" href="./src/styles/map.css">
 </head>
 <body>
-  <!-- 3D WebGL Canvas Layer -->
-  <canvas id="webgl-canvas" aria-label="3D City Scene"></canvas>
+  <canvas id="webgl-canvas" aria-label="3D city scene"></canvas>
 
-  <!-- Shader Compilation & Scene Pre-warm Overlay -->
+  <!-- Boot loader -->
   <div id="shader-loader" class="shader-loader" aria-hidden="true">
     <div class="loader-content">
-      <div class="loader-spinner"></div>
-      <div class="loader-bar-track">
-        <div id="loader-bar-fill" class="loader-bar-fill"></div>
-      </div>
-      <span class="loader-text">Compiling Shaders & Environment</span>
+      <div class="loader-logo">VERDANT <span class="accent">Z</span>ERO</div>
+      <div class="loader-bar-track"><div id="loader-bar-fill" class="loader-bar-fill"></div></div>
+      <span class="loader-text">Growing the city…</span>
     </div>
   </div>
 
-  <!-- Quiet Minimal UI Layer -->
   <main id="app-ui">
-    
-    <!-- Title Screen -->
-    <section id="title-screen" class="title-screen" aria-label="Verdant Zero Title Screen">
+
+    <!-- ============================ TITLE ============================ -->
+    <section id="title-screen" class="title-screen" aria-label="Title screen">
       <div class="title-container">
+        <p class="title-kicker">Metropolis Zero · Sector 7</p>
         <h1 class="logo">VERDANT <span class="letter-z">Z</span>ERO</h1>
-        <p class="tagline">The city forgot how to grow.</p>
-        <div class="title-buttons">
-          <button id="btn-play" class="btn-quiet" type="button">Play</button>
-          <button id="btn-how" class="btn-quiet" type="button">How to play</button>
+        <p class="tagline">The city forgot how to grow. You didn't.</p>
+
+        <div id="challenge-banner" class="challenge-banner" hidden>
+          <span class="challenge-label">Challenge received</span>
+          <span id="challenge-text" class="challenge-text"></span>
         </div>
+
+        <div class="title-buttons">
+          <button id="btn-play" class="btn btn-primary" type="button">Start reclamation <span class="key-hint">Enter</span></button>
+          <button id="btn-how" class="btn" type="button">How to play</button>
+          <button id="btn-settings" class="btn" type="button">Settings</button>
+        </div>
+
+        <dl id="title-records" class="title-records">
+          <div><dt>Best score</dt><dd id="rec-score">—</dd></div>
+          <div><dt>Best reclaimed</dt><dd id="rec-reclaimed">—</dd></div>
+          <div><dt>Peak combo</dt><dd id="rec-combo">—</dd></div>
+        </dl>
       </div>
+      <p class="title-footer">Mouse + keyboard or gamepad · Headphones recommended</p>
     </section>
 
-    <!-- How To Play Dialog Overlay -->
+    <!-- ============================ HOW TO PLAY ============================ -->
     <div id="dialog-how" class="dialog-overlay" aria-hidden="true" role="dialog" aria-labelledby="how-title">
-      <div class="dialog-box">
-        <h2 id="how-title" class="dialog-title">How to Play</h2>
-        <div class="dialog-content">
-          <p>
-            You are a small robotic gardener carrying the last living seed through a silent, dead megacity.
-          </p>
-          <div class="controls-list">
-            <span class="key-badge">WASD / Arrows</span>
-            <span>Walk relative to camera</span>
-            <span class="key-badge">Shift</span>
-            <span>Hold to run</span>
-            <span class="key-badge">F</span>
-            <span>Dash burst</span>
-            <span class="key-badge">Space</span>
-            <span>Jump / Hold to hover</span>
-            <span class="key-badge">E</span>
-            <span>Plant seed at fertile planters</span>
-            <span class="key-badge">Q / R-Click</span>
-            <span>Light pulse (clear smog / stun)</span>
-            <span class="key-badge">M / Alt</span>
-            <span>Sector map / Unlock radar cursor</span>
-            <span class="key-badge">T / G</span>
-            <span>Waypoint: Nearest water / spot</span>
-            <span class="key-badge">F4</span>
-            <span>Audio debug meters</span>
-            <span class="key-badge">Esc</span>
-            <span>Pause menu & settings</span>
-          </div>
-          <p>
-            Locate fertile cracks and planters on streets and rooftops. Plant seeds to watch glowing vines climb the concrete and awaken the city.
-          </p>
+      <div class="dialog-box dialog-wide">
+        <h2 id="how-title" class="dialog-title">How to play</h2>
+        <div class="dialog-content how-grid">
+          <section>
+            <h3 class="section-title">Mission</h3>
+            <ul class="how-list">
+              <li><b>Plant all 28 planters</b> before the 10:00 timer runs out. Each seed costs <b>25 water</b>.</li>
+              <li>Collect glowing <b class="c-water">water drops</b> (+25) on sidewalks, alleys and skyways.</li>
+              <li>Planters hide on the street, in alleys, on <b>skyways</b>, on <b>garden rooftops</b> and out in the <b class="c-smog">smog wastes</b>. Jump, then <b>hold Space to hover</b> up to ledges.</li>
+              <li>Chain plantings within 30s for a <b>×2 → ×4 → ×8</b> combo. Planting in smog or acid rain doubles points.</li>
+            </ul>
+            <h3 class="section-title">Threats</h3>
+            <ul class="how-list">
+              <li><b class="c-smog">Smog</b> drains health, slows you and hurts young vines.</li>
+              <li><b class="c-acid">Acid rain</b> rolls in every couple of minutes — shelter under skyways or awnings.</li>
+              <li><b class="c-drone">Purge drones</b> burn vines and shoot you once they spot you (14m). Watch for the red aim line, then dash aside.</li>
+              <li>The <b>Light Pulse</b> clears smog (15m) and stuns drones for 6s. 10s cooldown.</li>
+            </ul>
+          </section>
+          <section>
+            <h3 class="section-title">Controls</h3>
+            <div class="controls-list">
+              <span class="kbd">W A S D</span><span>Move (camera-relative)</span>
+              <span class="kbd">Mouse</span><span>Look (click to capture)</span>
+              <span class="kbd">Shift</span><span>Sprint</span>
+              <span class="kbd">Space</span><span>Jump · hold in air to hover</span>
+              <span class="kbd">F</span><span>Kinetic dash (dodges lasers)</span>
+              <span class="kbd">E</span><span>Plant seed</span>
+              <span class="kbd">Q / RMB</span><span>Light pulse</span>
+              <span class="kbd">G / T</span><span>Waypoint to planter / water</span>
+              <span class="kbd">M / Tab</span><span>Sector map</span>
+              <span class="kbd">Alt</span><span>Free the cursor</span>
+              <span class="kbd">Esc / P</span><span>Pause &amp; settings</span>
+              <span class="kbd">R</span><span>Restart run</span>
+            </div>
+            <p class="how-note">Gamepad: left stick move · right stick look · A jump/hover · X plant · LB pulse · RB dash · L3 sprint · D-pad ◀/▶ waypoints · View map · Menu pause.</p>
+          </section>
         </div>
-        <button id="btn-close-how" class="btn-quiet dialog-close-btn" type="button">Close</button>
+        <div class="dialog-button-row">
+          <button id="btn-close-how" class="btn btn-primary" type="button">Got it</button>
+        </div>
       </div>
     </div>
 
-    <!-- Pause & Settings Dialog Overlay -->
+    <!-- ============================ PAUSE / SETTINGS ============================ -->
     <div id="dialog-pause" class="dialog-overlay" aria-hidden="true" role="dialog" aria-labelledby="pause-title">
       <div class="dialog-box">
         <h2 id="pause-title" class="dialog-title">Paused</h2>
-        <div class="dialog-content">
-          <!-- 1. Master Volume -->
+        <div id="pause-run-summary" class="pause-summary"></div>
+        <div class="dialog-content settings-content">
+          <h3 class="section-title">Audio</h3>
           <div class="setting-item">
-            <label for="setting-master-vol" class="setting-label">Master Volume</label>
-            <div class="setting-control-row">
-              <input type="range" id="setting-master-vol" min="0" max="1" step="0.05" value="0.35" class="setting-slider">
-              <span id="master-vol-val" class="setting-val-display">35%</span>
-            </div>
+            <label for="setting-master-vol" class="setting-label">Master volume</label>
+            <input type="range" id="setting-master-vol" min="0" max="1" step="0.05" class="setting-slider">
+            <span id="master-vol-val" class="setting-val">100%</span>
           </div>
-          <!-- 2. Ambient/Rain Volume -->
           <div class="setting-item">
-            <label for="setting-ambient-vol" class="setting-label">Atmosphere / Rain Volume</label>
-            <div class="setting-control-row">
-              <input type="range" id="setting-ambient-vol" min="0" max="1" step="0.05" value="0.8" class="setting-slider">
-              <span id="ambient-vol-val" class="setting-val-display">80%</span>
-            </div>
+            <label for="setting-music-vol" class="setting-label">Music</label>
+            <input type="range" id="setting-music-vol" min="0" max="1" step="0.05" class="setting-slider">
+            <span id="music-vol-val" class="setting-val">85%</span>
           </div>
-          <!-- 3. SFX Volume -->
           <div class="setting-item">
-            <label for="setting-sfx-vol" class="setting-label">SFX / Chimes Volume</label>
-            <div class="setting-control-row">
-              <input type="range" id="setting-sfx-vol" min="0" max="1" step="0.05" value="0.8" class="setting-slider">
-              <span id="sfx-vol-val" class="setting-val-display">80%</span>
-            </div>
+            <label for="setting-ambient-vol" class="setting-label">Rain &amp; ambience</label>
+            <input type="range" id="setting-ambient-vol" min="0" max="1" step="0.05" class="setting-slider">
+            <span id="ambient-vol-val" class="setting-val">80%</span>
           </div>
-          <!-- 4. Mouse Sensitivity -->
           <div class="setting-item">
-            <label for="setting-sensitivity" class="setting-label">Mouse Sensitivity</label>
-            <div class="setting-control-row">
-              <input type="range" id="setting-sensitivity" min="0.2" max="3.0" step="0.1" value="1.0" class="setting-slider">
-              <span id="sensitivity-value" class="setting-val-display">1.0x</span>
-            </div>
+            <label for="setting-sfx-vol" class="setting-label">Effects</label>
+            <input type="range" id="setting-sfx-vol" min="0" max="1" step="0.05" class="setting-slider">
+            <span id="sfx-vol-val" class="setting-val">85%</span>
           </div>
-          <!-- 5. Scene Exposure -->
+          <label class="setting-check"><input type="checkbox" id="setting-mute-audio"><span>Mute all audio</span></label>
+
+          <h3 class="section-title">Controls</h3>
           <div class="setting-item">
-            <label for="setting-brightness" class="setting-label">Scene Brightness</label>
-            <div class="setting-control-row">
-              <input type="range" id="setting-brightness" min="0.5" max="2.0" step="0.1" value="1.0" class="setting-slider">
-              <span id="brightness-value" class="setting-val-display">1.0x</span>
-            </div>
+            <label for="setting-sensitivity" class="setting-label">Look sensitivity</label>
+            <input type="range" id="setting-sensitivity" min="0.2" max="3.0" step="0.1" class="setting-slider">
+            <span id="sensitivity-value" class="setting-val">1.0×</span>
           </div>
-          <!-- 6. Field of View -->
           <div class="setting-item">
-            <label for="setting-fov" class="setting-label">Field of View (FOV)</label>
-            <div class="setting-control-row">
-              <input type="range" id="setting-fov" min="50" max="85" step="1" value="60" class="setting-slider">
-              <span id="fov-val" class="setting-val-display">60°</span>
-            </div>
+            <label for="setting-move-speed" class="setting-label">Robot speed</label>
+            <input type="range" id="setting-move-speed" min="0.8" max="1.5" step="0.05" class="setting-slider">
+            <span id="move-speed-val" class="setting-val">100%</span>
           </div>
-          <!-- 7. Graphic Quality Preset -->
+          <label class="setting-check"><input type="checkbox" id="setting-invert-y"><span>Invert vertical look</span></label>
+          <label class="setting-check"><input type="checkbox" id="setting-cam-smoothing"><span>Smooth camera</span></label>
+
+          <h3 class="section-title">Display</h3>
           <div class="setting-item">
-            <label for="setting-quality" class="setting-label">Graphic Quality</label>
-            <div class="setting-control-row">
-              <select id="setting-quality" class="setting-select">
-                <option value="auto">Auto (Hardware Benchmark)</option>
-                <option value="high">High (Full Bloom, Shadows, DPR 1.25)</option>
-                <option value="medium">Medium (Balanced 60 FPS, DPR 1.15)</option>
-                <option value="low">Low (Fastest Performance, DPR 1.0)</option>
-              </select>
-            </div>
+            <label for="setting-quality" class="setting-label">Graphics quality</label>
+            <select id="setting-quality" class="setting-select">
+              <option value="auto">Auto (benchmark)</option>
+              <option value="high">High</option>
+              <option value="medium">Medium</option>
+              <option value="low">Low</option>
+            </select>
+            <span id="quality-active" class="setting-val"></span>
           </div>
-          <!-- 8. Robot Movement Speed Scale -->
           <div class="setting-item">
-            <label for="setting-move-speed" class="setting-label">Robot Movement Speed</label>
-            <div class="setting-control-row">
-              <input type="range" id="setting-move-speed" min="0.8" max="1.5" step="0.05" value="1.0" class="setting-slider">
-              <span id="move-speed-val" class="setting-val-display">100%</span>
-            </div>
+            <label for="setting-fov" class="setting-label">Field of view</label>
+            <input type="range" id="setting-fov" min="50" max="85" step="1" class="setting-slider">
+            <span id="fov-val" class="setting-val">60°</span>
           </div>
-          <!-- 9. Invert Vertical Look -->
           <div class="setting-item">
-            <label class="setting-checkbox-label">
-              <input type="checkbox" id="setting-invert-y" class="setting-checkbox">
-              <span>Invert Vertical Look (Y-Axis)</span>
-            </label>
+            <label for="setting-brightness" class="setting-label">Brightness</label>
+            <input type="range" id="setting-brightness" min="0.5" max="2.0" step="0.1" class="setting-slider">
+            <span id="brightness-value" class="setting-val">1.0×</span>
           </div>
-          <!-- 10. Mute Audio -->
-          <div class="setting-item">
-            <label class="setting-checkbox-label">
-              <input type="checkbox" id="setting-mute-audio" class="setting-checkbox">
-              <span>Mute All Audio</span>
-            </label>
-          </div>
-          <!-- 11. Camera Smoothing -->
-          <div class="setting-item">
-            <label class="setting-checkbox-label">
-              <input type="checkbox" id="setting-cam-smoothing" class="setting-checkbox" checked>
-              <span>Cinematic Camera Damping</span>
-            </label>
-          </div>
-          <!-- 12. Show FPS Overlay -->
-          <div class="setting-item">
-            <label class="setting-checkbox-label">
-              <input type="checkbox" id="setting-show-fps" class="setting-checkbox">
-              <span>Always Show FPS Overlay</span>
-            </label>
-          </div>
+          <label class="setting-check"><input type="checkbox" id="setting-msaa"><span>Anti-aliasing (4× MSAA, costs performance)</span></label>
+          <label class="setting-check"><input type="checkbox" id="setting-show-fps"><span>Show FPS counter (F3)</span></label>
         </div>
         <div class="dialog-button-row">
-          <button id="btn-resume" class="btn-quiet" type="button">Resume</button>
-          <button id="btn-pause-restart" class="btn-quiet" type="button">Restart</button>
-          <button id="btn-pause-menu" class="btn-quiet" type="button">Main menu</button>
+          <button id="btn-resume" class="btn btn-primary" type="button">Resume</button>
+          <button id="btn-pause-restart" class="btn" type="button">Restart</button>
+          <button id="btn-pause-menu" class="btn" type="button">Main menu</button>
         </div>
       </div>
     </div>
 
-    <!-- Damage Edge Flash & Smog Overlay -->
+    <!-- ============================ SCREEN EFFECTS ============================ -->
     <div id="damage-flash" class="damage-flash" aria-hidden="true"></div>
     <div id="smog-overlay" class="smog-overlay" aria-hidden="true"></div>
-
-    <!-- Threat Warnings & Off-Screen Indicators -->
-    <div id="acid-warning" class="acid-warning" aria-live="assertive">ACID RAIN IMMINENT — TAKE COVER UNDER OVERHANGS</div>
+    <div id="acid-overlay" class="acid-overlay" aria-hidden="true"></div>
     <div id="drone-indicators" class="drone-indicators" aria-hidden="true"></div>
-    <div id="water-indicator-arrow" class="water-indicator-arrow" aria-hidden="true"></div>
 
-    <!-- Center Floating Toast Notifications -->
-    <div id="toast-risk" class="toast-banner toast-risk" aria-live="assertive">RISK &times;2</div>
-    <div id="toast-milestone" class="toast-banner toast-milestone" aria-live="polite">+8s TIME BONUS — 10% RECLAIMED</div>
-
-    <!-- In-Game Gameplay HUD Elements (Hidden on Title Screen) -->
+    <!-- ============================ GAMEPLAY HUD ============================ -->
     <div id="gameplay-hud" class="gameplay-hud" aria-hidden="true">
-      <!-- Top Center HUD (Score & Combo Multiplier with Draining Ring) -->
-      <div id="hud-top-center" class="hud-top-center">
-        <div class="score-display">
-          <span class="score-label">SCORE</span>
-          <span id="hud-score-val" class="score-value">0</span>
-        </div>
-        <div id="hud-combo-group" class="combo-group" title="Chain plantings within 6 seconds">
-          <svg class="combo-ring-svg" viewBox="0 0 36 36">
-            <circle class="combo-ring-track" cx="18" cy="18" r="14" />
-            <circle id="combo-ring-fill" class="combo-ring-fill" cx="18" cy="18" r="14" />
-          </svg>
-          <span id="combo-badge-text" class="combo-text">1x</span>
-        </div>
-      </div>
 
-      <!-- Top Right HUD (Run Timer & Dedicated Health/Water Status Cluster) -->
-      <div id="hud-top-right" class="hud-top-right">
-        <!-- Run Countdown Timer -->
-        <div id="hud-timer-container" class="hud-timer-container">
-          <span class="timer-label">TIME</span>
-          <span id="hud-timer-val" class="timer-val">03:00</span>
-        </div>
-
-        <!-- Dedicated Survival HUD (Health & Water Readouts) -->
-        <div id="survival-hud" class="survival-hud">
-          <!-- Health Unit -->
-          <div id="health-container" class="bar-container health-row">
-            <div class="bar-header">
-              <span class="bar-label"><span class="status-dot dot-health"></span>HEALTH</span>
-              <span id="health-val" class="bar-num">100 / 100</span>
-            </div>
-            <div class="bar-track">
-              <div id="health-bar-fill" class="bar-fill health-fill"></div>
-            </div>
+      <!-- Top centre: score · timer · combo, objective underneath -->
+      <div class="hud-top-center">
+        <div class="hud-strip">
+          <div class="hud-cell">
+            <span class="hud-label">Score</span>
+            <span id="hud-score-val" class="hud-value">0</span>
           </div>
-          <!-- Water Unit -->
-          <div id="water-container" class="bar-container water-row">
-            <div class="bar-header">
-              <span class="bar-label"><span class="status-dot dot-water"></span>WATER</span>
-              <span id="water-val" class="bar-num">100 / 100</span>
-            </div>
-            <div class="bar-track">
-              <div id="water-bar-fill" class="bar-fill water-fill"></div>
-            </div>
+          <div id="hud-timer-container" class="hud-cell hud-timer">
+            <span class="hud-label">Time</span>
+            <span id="hud-timer-val" class="hud-value">10:00</span>
+          </div>
+          <div id="hud-combo-group" class="hud-cell combo-group" title="Plant again within 30s to build the combo">
+            <svg class="combo-ring-svg" viewBox="0 0 36 36" aria-hidden="true">
+              <circle class="combo-ring-track" cx="18" cy="18" r="14" />
+              <circle id="combo-ring-fill" class="combo-ring-fill" cx="18" cy="18" r="14" />
+            </svg>
+            <span id="combo-badge-text" class="combo-text">×1</span>
           </div>
         </div>
-      </div>
-
-      <!-- Bottom Center Pulse Ability Cooldown -->
-      <div id="pulse-container" class="pulse-container">
-        <div id="pulse-ability" class="pulse-ability" title="Light Pulse (Q / Right Mouse)">
-          <svg class="pulse-svg" viewBox="0 0 44 44">
-            <circle class="pulse-track" cx="22" cy="22" r="18" />
-            <circle id="pulse-cooldown-circle" class="pulse-fill" cx="22" cy="22" r="18" />
-          </svg>
-          <span class="pulse-key">Q</span>
+        <div class="objective">
+          <span class="objective-label">Planters</span>
+          <span id="hud-planters" class="objective-count">0 / 28</span>
+          <div class="objective-track"><div id="hud-reclaim-fill" class="objective-fill"></div></div>
+          <span id="reclaimed-val" class="objective-pct">0%</span>
         </div>
       </div>
 
-      <!-- Top Left Quiet Reclaimed Corner Counter -->
-      <div id="reclaimed-counter" class="reclaimed-counter" aria-live="polite">
-        <span id="reclaimed-val" class="reclaimed-val">0.0%</span> reclaimed
+      <!-- Top right: vitals -->
+      <div class="hud-top-right">
+        <div id="health-container" class="vital">
+          <div class="vital-head"><span class="vital-label"><i class="dot dot-health"></i>Health</span><span id="health-val" class="vital-num">100</span></div>
+          <div class="vital-track"><div id="health-bar-fill" class="vital-fill health-fill"></div></div>
+        </div>
+        <div id="water-container" class="vital">
+          <div class="vital-head"><span class="vital-label"><i class="dot dot-water"></i>Water</span><span id="water-val" class="vital-num">100</span></div>
+          <div class="vital-track water-track"><div id="water-bar-fill" class="vital-fill water-fill"></div></div>
+          <div id="seed-pips" class="seed-pips" aria-label="Seeds available"></div>
+        </div>
+        <div id="hover-container" class="vital vital-small">
+          <div class="vital-head"><span class="vital-label"><i class="dot dot-hover"></i>Hover</span></div>
+          <div class="vital-track"><div id="hover-bar-fill" class="vital-fill hover-fill"></div></div>
+        </div>
+        <div id="status-chips" class="status-chips">
+          <span id="chip-acid" class="chip chip-acid" hidden>Acid rain</span>
+          <span id="chip-smog" class="chip chip-smog" hidden>In smog</span>
+          <span id="chip-drone" class="chip chip-drone" hidden>Drone lock</span>
+        </div>
       </div>
 
-      <!-- Planting Interaction Prompt -->
-      <div id="plant-prompt" class="plant-prompt">
-        <span class="key-badge">E</span> — PLANT SEED
+      <!-- Bottom centre: abilities -->
+      <div class="ability-dock">
+        <button id="pulse-ability" class="ability" type="button" title="Light Pulse (Q / Right click)">
+          <svg class="ability-svg" viewBox="0 0 44 44" aria-hidden="true">
+            <circle class="ability-track" cx="22" cy="22" r="18" />
+            <circle id="pulse-cooldown-circle" class="ability-fill pulse-fill" cx="22" cy="22" r="18" />
+          </svg>
+          <span class="ability-key">Q</span>
+          <span id="pulse-cd-text" class="ability-cd"></span>
+          <span class="ability-name">Pulse</span>
+        </button>
+        <div id="dash-ability" class="ability" title="Kinetic Dash (F)">
+          <svg class="ability-svg" viewBox="0 0 44 44" aria-hidden="true">
+            <circle class="ability-track" cx="22" cy="22" r="18" />
+            <circle id="dash-cooldown-circle" class="ability-fill dash-fill" cx="22" cy="22" r="18" />
+          </svg>
+          <span class="ability-key">F</span>
+          <span class="ability-name">Dash</span>
+        </div>
       </div>
+
+      <!-- Context prompt -->
+      <div id="plant-prompt" class="plant-prompt" aria-live="polite">
+        <span class="kbd">E</span><span id="plant-prompt-text">Plant seed</span>
+      </div>
+
+      <!-- Toasts -->
+      <div id="toast-stack" class="toast-stack" aria-live="polite"></div>
     </div>
 
-    <!-- Game Over Screen Modal -->
+    <!-- ============================ GAME OVER ============================ -->
     <div id="modal-gameover" class="dialog-overlay gameover-overlay" aria-hidden="true" role="dialog" aria-labelledby="go-title">
       <div class="dialog-box gameover-box">
         <div class="gameover-header">
-          <h2 id="go-title" class="dialog-title gameover-title">SYSTEM DEPLETED</h2>
-          <div id="go-new-best-badge" class="new-best-badge">NEW RECORD!</div>
+          <p id="go-kicker" class="go-kicker">Run complete</p>
+          <h2 id="go-title" class="dialog-title gameover-title">System depleted</h2>
+          <p id="go-subtitle" class="go-subtitle"></p>
+          <div id="go-new-best-badge" class="new-best-badge">New personal best</div>
         </div>
 
         <div class="gameover-stats-grid">
-          <div class="stat-card">
-            <span class="stat-label">FINAL SCORE</span>
-            <span id="go-score" class="stat-number score-glow">0</span>
+          <div class="stat-card stat-hero"><span class="stat-label">Final score</span><span id="go-score" class="stat-number">0</span></div>
+          <div class="stat-card"><span class="stat-label">Reclaimed</span><span id="go-reclaimed" class="stat-number">0%</span></div>
+          <div class="stat-card"><span class="stat-label">Planters</span><span id="go-vines" class="stat-number">0</span></div>
+          <div class="stat-card"><span class="stat-label">Peak combo</span><span id="go-combo" class="stat-number">×1</span></div>
+          <div class="stat-card"><span class="stat-label">Drones stunned</span><span id="go-drones" class="stat-number">0</span></div>
+          <div class="stat-card"><span class="stat-label">Time</span><span id="go-time" class="stat-number">00:00</span></div>
+        </div>
+
+        <div class="gameover-columns">
+          <div class="leaderboard-panel">
+            <div class="panel-title">Leaderboard</div>
+            <div class="leaderboard-submit-box">
+              <input type="text" id="leaderboard-nickname" placeholder="Nickname" maxlength="20" class="input-text" autocomplete="off">
+              <input type="text" id="leaderboard-college" placeholder="Crew / college (optional)" maxlength="30" class="input-text" autocomplete="off">
+              <button id="btn-submit-score" class="btn btn-small" type="button">Save score</button>
+            </div>
+            <div id="submit-status-msg" class="submit-status-msg" aria-live="polite"></div>
+            <div class="leaderboard-tabs" role="tablist">
+              <button id="tab-lb-all" class="lb-tab active" type="button">All time</button>
+              <button id="tab-lb-today" class="lb-tab" type="button">Today</button>
+              <button id="tab-lb-college" class="lb-tab" type="button">My crew</button>
+            </div>
+            <div id="leaderboard-table-content" class="leaderboard-table-content"></div>
           </div>
-          <div class="stat-card">
-            <span class="stat-label">RECLAIMED</span>
-            <span id="go-reclaimed" class="stat-number">0.0%</span>
-          </div>
-          <div class="stat-card">
-            <span class="stat-label">BEST COMBO</span>
-            <span id="go-combo" class="stat-number">1x</span>
-          </div>
-          <div class="stat-card">
-            <span class="stat-label">VINES PLANTED</span>
-            <span id="go-vines" class="stat-number">0</span>
-          </div>
-          <div class="stat-card">
-            <span class="stat-label">DRONES EVADED</span>
-            <span id="go-drones" class="stat-number">0</span>
-          </div>
-          <div class="stat-card">
-            <span class="stat-label">SURVIVED</span>
-            <span id="go-time" class="stat-number">00:00</span>
+          <div class="history-panel">
+            <div class="panel-title">Recent runs</div>
+            <div id="go-history-list" class="history-list"></div>
           </div>
         </div>
 
-        <!-- Player Profile & Leaderboard Submit Form -->
-        <div class="leaderboard-submit-box">
-          <div class="input-row">
-            <input type="text" id="leaderboard-nickname" placeholder="Pilot Nickname" maxlength="20" class="input-text">
-            <input type="text" id="leaderboard-college" placeholder="College / Affiliation" maxlength="30" class="input-text">
-            <button id="btn-submit-score" class="btn-quiet btn-primary-action" type="button">Submit Score</button>
-          </div>
-          <div id="submit-status-msg" class="submit-status-msg"></div>
-        </div>
-
-        <!-- Leaderboard Tabs & Standings Table -->
-        <div class="leaderboard-view-container">
-          <div class="leaderboard-tabs">
-            <button id="tab-lb-all" class="lb-tab active" type="button">All Time</button>
-            <button id="tab-lb-today" class="lb-tab" type="button">Today</button>
-            <button id="tab-lb-college" class="lb-tab" type="button">My College</button>
-          </div>
-          <div id="leaderboard-table-content" class="leaderboard-table-content"></div>
-        </div>
-
-        <!-- Recent Runs History -->
-        <div class="gameover-history-section">
-          <div class="history-title">RECENT RUNS (LAST 5)</div>
-          <div id="go-history-list" class="history-list"></div>
-        </div>
-
-        <div class="gameover-actions">
-          <button id="btn-gameover-restart" class="btn-quiet btn-primary-action" type="button">Play again <span class="key-hint">(R)</span></button>
-          <button id="btn-share-challenge" class="btn-quiet btn-share" type="button">Challenge a Friend</button>
-          <button id="btn-gameover-menu" class="btn-quiet" type="button">Main menu</button>
-          <button id="btn-timelapse-hook" class="btn-quiet btn-subtle-hook" type="button" title="Capture cinematic run summary">Record Time-Lapse</button>
+        <div class="dialog-button-row">
+          <button id="btn-gameover-restart" class="btn btn-primary" type="button">Play again <span class="key-hint">R</span></button>
+          <button id="btn-share-challenge" class="btn" type="button">Copy challenge link</button>
+          <button id="btn-gameover-menu" class="btn" type="button">Main menu</button>
         </div>
       </div>
     </div>
 
-    <!-- Pointer Lock Re-engagement Prompt -->
-    <div id="pointerlock-prompt" class="pointerlock-prompt" aria-hidden="true">
-      Click screen to resume mouse look
-    </div>
+    <!-- Pointer lock hint -->
+    <div id="pointerlock-prompt" class="pointerlock-prompt" aria-hidden="true">Click to capture the mouse</div>
 
-    <!-- Global Error Boundary Dialog -->
+    <!-- Error boundary -->
     <div id="dialog-error" class="dialog-overlay" aria-hidden="true" role="dialog" aria-labelledby="error-title">
       <div class="dialog-box">
-        <h2 id="error-title" class="dialog-title" style="color: #ff5555;">RECOVERY INTERRUPT</h2>
-        <div class="dialog-content">
-          <p id="error-message">An unexpected runtime exception occurred. The simulation state was preserved safely.</p>
-        </div>
+        <h2 id="error-title" class="dialog-title error-title">Something went wrong</h2>
+        <div class="dialog-content"><p id="error-message">An unexpected error occurred.</p></div>
         <div class="dialog-button-row">
-          <button id="btn-error-restart" class="btn-quiet btn-primary-action" type="button">Restart Simulation</button>
-          <button id="btn-error-reload" class="btn-quiet" type="button">Reload Page</button>
+          <button id="btn-error-restart" class="btn btn-primary" type="button">Restart run</button>
+          <button id="btn-error-reload" class="btn" type="button">Reload page</button>
         </div>
       </div>
     </div>
 
-    <!-- Debug FPS Counter (Toggled with F3) -->
-    <div id="debug-fps" class="debug-fps">FPS: <span id="fps-val">60</span></div>
-
+    <div id="debug-fps" class="debug-fps">FPS <span id="fps-val">60</span></div>
   </main>
 
   <script type="module" src="./src/main.js"></script>

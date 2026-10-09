@@ -1,5 +1,67 @@
 import * as THREE from 'three';
 import { createBuildingMaterial } from './BuildingShader.js';
+import { createRng } from '../core/random.js';
+
+// Fixed city plan (all values in metres). Towers line the street on a 24m rhythm,
+// leaving 6m alleys at z = -120, -96, ... 120.
+const STREET_BLOCK_Z = [-132, -108, -84, -60, -36, -12, 12, 36, 60, 84, 108, 132];
+
+// Skyways bridge the street at 11m. A 5m crate under each one acts as a stepping stone.
+export const SKYWAYS = [
+  { z: -60, deckY: 11, crateSide: -1 },
+  { z: 36, deckY: 11, crateSide: 1 },
+  { z: 108, deckY: 11, crateSide: -1 }
+];
+
+// Low "garden" towers beside each skyway; their roofs are reachable by hovering up from the deck.
+const GARDEN_TOWERS = [
+  { side: -1, z: -60, height: 19 },
+  { side: 1, z: 36, height: 22 },
+  { side: -1, z: 108, height: 18 }
+];
+
+// Sidewalk awnings (shelter from acid rain).
+const AWNINGS = [
+  { side: -1, z: -108 }, { side: -1, z: -36 }, { side: -1, z: 12 }, { side: -1, z: 84 },
+  { side: 1, z: -132 }, { side: 1, z: -84 }, { side: 1, z: -12 }, { side: 1, z: 60 }, { side: 1, z: 108 }
+];
+
+// 28 fertile planters: street, alleys, skyways, garden rooftops and the smog-heavy outer district.
+export const PLANTER_LAYOUT = [
+  // Street canyon
+  { x: -12, y: 0.1, z: -10, type: 'Main Street West' },
+  { x: 12, y: 0.1, z: -18, type: 'Main Street East' },
+  { x: -12, y: 0.1, z: -44, type: 'North Sidewalk' },
+  { x: 12, y: 0.1, z: -80, type: 'Transit Stop' },
+  { x: -12, y: 0.1, z: -100, type: 'Old Market Curb' },
+  { x: 0, y: 0.1, z: -112, type: 'North Median' },
+  { x: -12, y: 0.1, z: -128, type: 'North Gate' },
+  { x: 12, y: 0.1, z: 20, type: 'Arcade Walk' },
+  { x: -12, y: 0.1, z: 52, type: 'South Sidewalk' },
+  { x: 0, y: 0.1, z: 64, type: 'South Median' },
+  { x: 12, y: 0.1, z: 72, type: 'Canal Corner' },
+  { x: -12, y: 0.1, z: 88, type: 'Noodle Bar Awning' },
+  { x: 12, y: 0.1, z: 124, type: 'South Gate' },
+  // Alleys
+  { x: -25, y: 0.1, z: 0, type: 'Lantern Alley' },
+  { x: 25, y: 0.1, z: -48, type: 'Cable Alley' },
+  { x: -25, y: 0.1, z: -96, type: 'Rust Alley' },
+  { x: 25, y: 0.1, z: 72, type: 'Steam Alley' },
+  { x: 25, y: 0.1, z: -120, type: 'Drain Alley' },
+  // Skyways
+  { x: -6, y: 11.1, z: -60, type: 'North Skyway' },
+  { x: 7, y: 11.1, z: 36, type: 'Central Skyway' },
+  { x: -7, y: 11.1, z: 108, type: 'South Skyway' },
+  // Garden rooftops
+  { x: -24, y: 19.1, z: -60, type: 'Hanging Garden Roof' },
+  { x: 24, y: 22.1, z: 36, type: 'Water Tower Roof' },
+  { x: -24, y: 18.1, z: 108, type: 'Greenhouse Roof' },
+  // Outer district (thick smog, risk bonus)
+  { x: -46, y: 0.1, z: -20, type: 'West Wastes' },
+  { x: 46, y: 0.1, z: -70, type: 'East Scrapyard' },
+  { x: -46, y: 0.1, z: 60, type: 'Drowned Plaza' },
+  { x: 46, y: 0.1, z: 110, type: 'Dead Reservoir' }
+];
 
 /**
  * Procedural Cyberpunk Metropolis Generator
@@ -18,6 +80,9 @@ export class CityGenerator {
     this.buildingColliders = [];
     this.plantingSpots = [];
     this.animatedObjects = [];
+    this.shelters = [];
+    this.playerPosition = null;
+    this.rng = createRng(20260);
 
     // Building material with procedural window hash & living green wave
     this.buildingMaterial = createBuildingMaterial();
@@ -29,6 +94,7 @@ export class CityGenerator {
     this.buildGroundAndStreets();
     this.buildSkyAtmosphere();
     this.buildCityLayers();
+    this.buildTraversalStructures();
     this.buildRooftopDetails();
     this.buildStreetLampsAndDetails();
     this.buildNeonGlyphSigns();
@@ -290,148 +356,142 @@ export class CityGenerator {
   }
 
   buildCityLayers() {
+    const rng = this.rng;
     const totalBuildings = 360;
     const boxGeo = new THREE.BoxGeometry(1, 1, 1);
-    
+
     this.towersMesh = new THREE.InstancedMesh(boxGeo, this.buildingMaterial, totalBuildings);
     const dummy = new THREE.Object3D();
 
     this.buildingPositions = [];
     let count = 0;
 
-    // ----------------------------------------------------
-    // LAYER 1: Close Layer (45 towers immediately around player)
-    // Clear central street canyon along X=0, towers lining sidewalks
-    // ----------------------------------------------------
-    // Sanctuary Tower on Left Side of Street (Spot 0 climbs this tower)
-    dummy.position.set(-22.5, 24, 0);
-    dummy.scale.set(16, 48, 22);
-    dummy.updateMatrix();
-    this.towersMesh.setMatrixAt(count, dummy.matrix);
-    this.buildingPositions.push({ x: -22.5, y: 48, z: 0, w: 16, d: 22, layer: 1 });
-    this.buildingColliders.push({ minX: -30.5, maxX: -14.5, minZ: -11, maxZ: 11, height: 48 });
-    count++;
-
-    // East Tower on Right Side of Street (Spot 1 climbs this tower)
-    dummy.position.set(22.5, 28, 12);
-    dummy.scale.set(15, 56, 20);
-    dummy.updateMatrix();
-    this.towersMesh.setMatrixAt(count, dummy.matrix);
-    this.buildingPositions.push({ x: 22.5, y: 56, z: 12, w: 15, d: 20, layer: 1 });
-    this.buildingColliders.push({ minX: 15.0, maxX: 30.0, minZ: 2, maxZ: 22, height: 56 });
-    count++;
-
-    // Generate remaining close towers along street canyon (comfortable spacious sidewalks)
-    for (let z = -140; z <= 140; z += 22) {
-      if (Math.abs(z) < 12) continue; // Keep player start clearing
-
-      // Left side towers
-      if (count < totalBuildings) {
-        const posX = -23.5 - Math.random() * 6;
-        const posZ = z + (Math.random() - 0.5) * 6;
-        const width = 15 + Math.random() * 5;
-        const depth = 16 + Math.random() * 8;
-        const height = 30 + Math.random() * 45;
-
-        dummy.position.set(posX, height / 2, posZ);
-        dummy.scale.set(width, height, depth);
-        dummy.updateMatrix();
-
-        this.towersMesh.setMatrixAt(count, dummy.matrix);
-        this.buildingPositions.push({ x: posX, y: height, z: posZ, w: width, d: depth, layer: 1 });
-        this.buildingColliders.push({
-          minX: posX - width / 2,
-          maxX: posX + width / 2,
-          minZ: posZ - depth / 2,
-          maxZ: posZ + depth / 2,
-          height: height
-        });
-        count++;
+    const addTower = (x, z, w, d, h, layer, collide = true) => {
+      if (count >= totalBuildings) return;
+      dummy.position.set(x, h / 2, z);
+      dummy.scale.set(w, h, d);
+      dummy.updateMatrix();
+      this.towersMesh.setMatrixAt(count++, dummy.matrix);
+      if (layer < 3) this.buildingPositions.push({ x, y: h, z, w, d, layer });
+      if (collide) {
+        this.buildingColliders.push({ minX: x - w / 2, maxX: x + w / 2, minZ: z - d / 2, maxZ: z + d / 2, minY: 0, height: h });
       }
+    };
 
-      // Right side towers
-      if (count < totalBuildings) {
-        const posX = 23.5 + Math.random() * 6;
-        const posZ = z + (Math.random() - 0.5) * 6;
-        const width = 15 + Math.random() * 5;
-        const depth = 16 + Math.random() * 8;
-        const height = 32 + Math.random() * 48;
-
-        dummy.position.set(posX, height / 2, posZ);
-        dummy.scale.set(width, height, depth);
-        dummy.updateMatrix();
-
-        this.towersMesh.setMatrixAt(count, dummy.matrix);
-        this.buildingPositions.push({ x: posX, y: height, z: posZ, w: width, d: depth, layer: 1 });
-        this.buildingColliders.push({
-          minX: posX - width / 2,
-          maxX: posX + width / 2,
-          minZ: posZ - depth / 2,
-          maxZ: posZ + depth / 2,
-          height: height
-        });
-        count++;
+    // ----------------------------------------------------
+    // LAYER 1: Street canyon. Towers on a fixed 24m rhythm leave 6m alleys between them.
+    // Garden towers (low roofs) sit beside each skyway so their roofs are reachable by hover.
+    // ----------------------------------------------------
+    for (const z of STREET_BLOCK_Z) {
+      for (const side of [-1, 1]) {
+        const garden = GARDEN_TOWERS.find(g => g.side === side && g.z === z);
+        const height = garden ? garden.height : 34 + rng() * 50;
+        const width = 16;
+        addTower(side * 24, z, width, 18, height, 1);
       }
     }
 
     // ----------------------------------------------------
-    // LAYER 2: Middle Layer (135 huge towering skyscrapers)
-    // Heights 60m to 160m forming a dense metropolis skyline
+    // LAYER 2: Skyline ring (kept clear of outer-district planters)
     // ----------------------------------------------------
+    const outerSpots = PLANTER_LAYOUT.filter(p => Math.abs(p.x) > 30);
     for (let i = 0; i < 135; i++) {
-      if (count >= totalBuildings) break;
-
-      const angle = (i / 135) * Math.PI * 2 + (Math.random() - 0.5) * 0.15;
-      const radius = 68 + Math.random() * 85;
+      const angle = (i / 135) * Math.PI * 2 + (rng() - 0.5) * 0.15;
+      const radius = 72 + rng() * 80;
       const posX = Math.cos(angle) * radius;
       const posZ = Math.sin(angle) * radius;
+      const width = 16 + rng() * 16;
+      const depth = 16 + rng() * 16;
+      const height = 55 + rng() * 115;
 
-      const width = 16 + Math.random() * 16;
-      const depth = 16 + Math.random() * 16;
-      const height = 55 + Math.random() * 115;
+      // Never overlap the street canyon or block an outer-district planter
+      if (Math.abs(posX) - width / 2 < 36) continue;
+      const blocksSpot = outerSpots.some(p =>
+        p.x > posX - width / 2 - 7 && p.x < posX + width / 2 + 7 &&
+        p.z > posZ - depth / 2 - 7 && p.z < posZ + depth / 2 + 7);
+      if (blocksSpot) continue;
 
-      dummy.position.set(posX, height / 2, posZ);
-      dummy.scale.set(width, height, depth);
-      dummy.updateMatrix();
-
-      this.towersMesh.setMatrixAt(count, dummy.matrix);
-      this.buildingPositions.push({ x: posX, y: height, z: posZ, w: width, d: depth, layer: 2 });
-      this.buildingColliders.push({
-        minX: posX - width / 2,
-        maxX: posX + width / 2,
-        minZ: posZ - depth / 2,
-        maxZ: posZ + depth / 2,
-        height: height
-      });
-      count++;
+      addTower(posX, posZ, width, depth, height, 2);
     }
 
     // ----------------------------------------------------
-    // LAYER 3: Far Layer (180 giant mega-silhouettes fading into purple haze)
-    // Heights 120m to 260m creating vast Blade Runner 2049 scale
+    // LAYER 3: Far mega-silhouettes fading into haze (visual only, no collision)
     // ----------------------------------------------------
-    for (let i = 0; i < 180; i++) {
-      if (count >= totalBuildings) break;
-
+    for (let i = 0; i < 180 && count < totalBuildings; i++) {
       const angle = (i / 180) * Math.PI * 2;
-      const radius = 170 + Math.random() * 180;
-      const posX = Math.cos(angle) * radius;
-      const posZ = Math.sin(angle) * radius;
-
-      const width = 30 + Math.random() * 32;
-      const depth = 30 + Math.random() * 32;
-      const height = 110 + Math.random() * 160;
-
-      dummy.position.set(posX, height / 2, posZ);
-      dummy.scale.set(width, height, depth);
-      dummy.updateMatrix();
-
-      this.towersMesh.setMatrixAt(count, dummy.matrix);
-      count++;
+      const radius = 170 + rng() * 180;
+      addTower(Math.cos(angle) * radius, Math.sin(angle) * radius,
+        30 + rng() * 32, 30 + rng() * 32, 110 + rng() * 160, 3, false);
     }
 
+    this.towersMesh.count = count;
     this.towersMesh.instanceMatrix.needsUpdate = true;
     this.scene.add(this.towersMesh);
+  }
+
+  /**
+   * Walkable skyways, awnings and crates. Their undersides shelter the player from acid rain
+   * (colliders with minY > 0), and their tops are hover-reachable platforms.
+   */
+  buildTraversalStructures() {
+    const deckMat = new THREE.MeshStandardMaterial({ color: 0x1c2333, roughness: 0.6, metalness: 0.4 });
+    const trimMat = new THREE.MeshBasicMaterial({ color: 0x00e5a0 });
+    const awningMat = new THREE.MeshStandardMaterial({ color: 0x232a3d, roughness: 0.7, metalness: 0.3 });
+    const awningTrimMat = new THREE.MeshBasicMaterial({ color: 0xff3d8b });
+    const crateMat = new THREE.MeshStandardMaterial({ color: 0x2b3448, roughness: 0.8, metalness: 0.2 });
+
+    const box = new THREE.BoxGeometry(1, 1, 1);
+    const pieces = { deck: [], trim: [], awning: [], awningTrim: [], crate: [] };
+    const add = (list, x, y, z, w, h, d) => list.push({ x, y, z, w, h, d });
+
+    this.shelters = [];
+
+    // Skyways spanning the street at deck height 11m
+    SKYWAYS.forEach(s => {
+      const minY = s.deckY - 0.8;
+      add(pieces.deck, 0, s.deckY - 0.4, s.z, 32, 0.8, 7);
+      add(pieces.trim, 0, s.deckY + 0.05, s.z - 3.45, 32, 0.12, 0.12);
+      add(pieces.trim, 0, s.deckY + 0.05, s.z + 3.45, 32, 0.12, 0.12);
+      add(pieces.trim, 0, minY - 0.05, s.z - 3.45, 32, 0.1, 0.1);
+      add(pieces.trim, 0, minY - 0.05, s.z + 3.45, 32, 0.1, 0.1);
+      this.buildingColliders.push({ minX: -16, maxX: 16, minZ: s.z - 3.5, maxZ: s.z + 3.5, minY, height: s.deckY, isPlatform: true });
+      this.shelters.push({ minX: -16, maxX: 16, minZ: s.z - 3.5, maxZ: s.z + 3.5, minY });
+
+      // Stepping crate on the sidewalk below each skyway
+      const cx = s.crateSide * 12.6;
+      const cz = s.z + 6.5;
+      add(pieces.crate, cx, 2.5, cz, 3.2, 5, 3.2);
+      this.buildingColliders.push({ minX: cx - 1.6, maxX: cx + 1.6, minZ: cz - 1.6, maxZ: cz + 1.6, minY: 0, height: 5, isPlatform: true });
+    });
+
+    // Awnings over the sidewalks (shelter from acid rain)
+    AWNINGS.forEach(a => {
+      const faceX = a.side * 16;
+      const cx = faceX - a.side * 1.75;
+      const top = 4.6;
+      add(pieces.awning, cx, top - 0.15, a.z, 3.5, 0.3, 9);
+      add(pieces.awningTrim, faceX - a.side * 3.5, top - 0.15, a.z, 0.12, 0.34, 9);
+      const minX = Math.min(faceX, faceX - a.side * 3.5);
+      const maxX = Math.max(faceX, faceX - a.side * 3.5);
+      this.buildingColliders.push({ minX, maxX, minZ: a.z - 4.5, maxZ: a.z + 4.5, minY: top - 0.3, height: top, isPlatform: true });
+      this.shelters.push({ minX, maxX, minZ: a.z - 4.5, maxZ: a.z + 4.5, minY: top - 0.3 });
+    });
+
+    const materials = { deck: deckMat, trim: trimMat, awning: awningMat, awningTrim: awningTrimMat, crate: crateMat };
+    const dummy = new THREE.Object3D();
+    Object.keys(pieces).forEach(key => {
+      const list = pieces[key];
+      if (list.length === 0) return;
+      const mesh = new THREE.InstancedMesh(box, materials[key], list.length);
+      list.forEach((p, i) => {
+        dummy.position.set(p.x, p.y, p.z);
+        dummy.scale.set(p.w, p.h, p.d);
+        dummy.updateMatrix();
+        mesh.setMatrixAt(i, dummy.matrix);
+      });
+      mesh.instanceMatrix.needsUpdate = true;
+      this.scene.add(mesh);
+    });
   }
 
   buildRooftopDetails() {
@@ -456,7 +516,7 @@ export class CityGenerator {
     let tankCount = 0;
 
     this.buildingPositions.forEach((b, idx) => {
-      if (b.layer === 1 || b.layer === 2) {
+      if ((b.layer === 1 || b.layer === 2) && b.y > 26) {
         if (idx % 2 === 0 && spireCount < 45) {
           dummy.position.set(b.x, b.y + 12, b.z);
           dummy.scale.set(1, 1, 1);
@@ -498,7 +558,7 @@ export class CityGenerator {
     const coneMat = new THREE.MeshBasicMaterial({
       color: 0x00f0ff,
       transparent: true,
-      opacity: 0.12,
+      opacity: 0.06,
       side: THREE.DoubleSide,
       depthWrite: false,
       blending: THREE.AdditiveBlending
@@ -587,7 +647,7 @@ export class CityGenerator {
     // Abstract vertical glyph marks
     for (let y = 30; y < 360; y += 45) {
       ctx.beginPath();
-      const style = Math.floor(Math.random() * 4);
+      const style = Math.floor(this.rng() * 4);
       if (style === 0) {
         ctx.moveTo(35, y); ctx.lineTo(95, y);
         ctx.moveTo(64, y); ctx.lineTo(64, y + 25);
@@ -764,116 +824,126 @@ export class CityGenerator {
   }
 
   setupPlantingSpots() {
-    const spots = [
-      { id: 0, x: -11.5, y: 0.1, z: 0, type: 'Sanctuary Spire Base' },
-      { id: 1, x: 11.5, y: 0.1, z: 12, type: 'East Tower Walkway' },
-      { id: 2, x: 0, y: 0.1, z: -35, type: 'North Avenue Crossing' },
-      { id: 3, x: -22.5, y: 48.1, z: 0, type: 'Sanctuary Rooftop' },
-      { id: 4, x: 22.5, y: 56.1, z: 12, type: 'Sky Overlook' },
-      { id: 5, x: 0, y: 0.1, z: 45, type: 'South Canal Plaza' }
-    ];
+    const count = PLANTER_LAYOUT.length;
+    const additive = (color, opacity) => new THREE.MeshBasicMaterial({
+      color, transparent: true, opacity, side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending, depthWrite: false
+    });
 
-    // Shared Geometries for Planter & Beacon
     const rimGeo = new THREE.CylinderGeometry(1.65, 1.80, 0.22, 28);
-    const soilGeo = new THREE.CircleGeometry(1.5, 28);
-    const glowGeo = new THREE.CircleGeometry(1.35, 28);
-    const ringGeo = new THREE.RingGeometry(1.35, 1.75, 32);
-    const beamGeo = new THREE.CylinderGeometry(0.28, 1.05, 7.5, 16, 1, true);
+    const soilGeo = new THREE.CircleGeometry(1.5, 28).rotateX(-Math.PI / 2);
+    const glowGeo = new THREE.CircleGeometry(1.35, 28).rotateX(-Math.PI / 2);
+    const ringGeo = new THREE.RingGeometry(1.35, 1.75, 32).rotateX(-Math.PI / 2);
+    const beamGeo = new THREE.CylinderGeometry(0.28, 1.05, 7.5, 16, 1, true).translate(0, 3.75, 0);
     const gemGeo = new THREE.OctahedronGeometry(0.24, 0);
 
-    const rimMat = new THREE.MeshStandardMaterial({
-      color: 0x161b26,
-      roughness: 0.75,
-      metalness: 0.20
+    this.spotRims = new THREE.InstancedMesh(rimGeo, new THREE.MeshStandardMaterial({ color: 0x161b26, roughness: 0.75, metalness: 0.2 }), count);
+    this.spotSoil = new THREE.InstancedMesh(soilGeo, new THREE.MeshStandardMaterial({ color: 0x0a0e14, roughness: 0.95, metalness: 0.05 }), count);
+    // Additive materials: per-instance colour brightness acts as per-instance opacity.
+    this.spotGlows = new THREE.InstancedMesh(glowGeo, additive(0xffffff, 0.75), count);
+    this.spotRings = new THREE.InstancedMesh(ringGeo, additive(0xffffff, 1.0), count);
+    this.spotBeams = new THREE.InstancedMesh(beamGeo, additive(0xffffff, 0.5), count);
+    this.spotGems = new THREE.InstancedMesh(gemGeo, new THREE.MeshBasicMaterial({ color: 0xffffff }), count);
+
+    const dummy = new THREE.Object3D();
+    const black = new THREE.Color(0, 0, 0);
+    this.spotMeshes = PLANTER_LAYOUT.map((sp, i) => {
+      dummy.position.set(sp.x, sp.y + 0.11, sp.z);
+      dummy.updateMatrix();
+      this.spotRims.setMatrixAt(i, dummy.matrix);
+      dummy.position.set(sp.x, sp.y + 0.21, sp.z);
+      dummy.updateMatrix();
+      this.spotSoil.setMatrixAt(i, dummy.matrix);
+      dummy.position.set(sp.x, sp.y + 0.22, sp.z);
+      dummy.updateMatrix();
+      this.spotGlows.setMatrixAt(i, dummy.matrix);
+      dummy.position.set(sp.x, sp.y + 0.23, sp.z);
+      dummy.updateMatrix();
+      this.spotRings.setMatrixAt(i, dummy.matrix);
+      [this.spotGlows, this.spotRings, this.spotBeams, this.spotGems].forEach(m => m.setColorAt(i, black));
+      return { data: { id: i, ...sp }, index: i, isPlanted: false, isWithering: false, health: 1, deniedTimer: 0 };
     });
 
-    const soilMat = new THREE.MeshStandardMaterial({
-      color: 0x0a0e14,
-      roughness: 0.95,
-      metalness: 0.05
+    [this.spotRims, this.spotSoil, this.spotGlows, this.spotRings, this.spotBeams, this.spotGems].forEach(m => {
+      m.instanceMatrix.needsUpdate = true;
+      if (m.instanceColor) m.instanceColor.needsUpdate = true;
+      m.frustumCulled = false;
+      this.scene.add(m);
     });
 
-    this.spotMeshes = [];
+    this._spotDummy = dummy;
+    this._spotColor = new THREE.Color();
+  }
 
-    spots.forEach(sp => {
-      const group = new THREE.Group();
-      group.position.set(sp.x, sp.y, sp.z);
+  setPlayerPosition(pos) {
+    this.playerPosition = pos;
+  }
 
-      // 1. Concrete Planter Rim (Grounds the spot in the physical world)
-      const rim = new THREE.Mesh(rimGeo, rimMat);
-      rim.position.y = 0.11;
-      group.add(rim);
+  flashSpotDenied(spot) {
+    if (spot) spot.deniedTimer = 0.45;
+  }
 
-      // 2. Fertile Soil Center
-      const soil = new THREE.Mesh(soilGeo, soilMat);
-      soil.rotation.x = -Math.PI / 2;
-      soil.position.y = 0.21;
-      group.add(soil);
+  updatePlantingSpots(delta, time) {
+    if (!this.spotMeshes) return;
+    const dummy = this._spotDummy;
+    const c = this._spotColor;
+    const playerPos = this.playerPosition;
 
-      // 3. Inner Bioluminescent Ground Glow Disc (pulsing core)
-      const glowMat = new THREE.MeshBasicMaterial({
-        color: 0x00ff88,
-        transparent: true,
-        opacity: 0.45,
-        side: THREE.DoubleSide,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false
-      });
-      const groundGlow = new THREE.Mesh(glowGeo, glowMat);
-      groundGlow.rotation.x = -Math.PI / 2;
-      groundGlow.position.y = 0.22;
-      group.add(groundGlow);
+    for (let i = 0; i < this.spotMeshes.length; i++) {
+      const sp = this.spotMeshes[i];
+      const d = sp.data;
+      if (sp.deniedTimer > 0) sp.deniedTimer -= delta;
 
-      // 4. Concentric Ripple Ring
-      const ringMat = new THREE.MeshBasicMaterial({
-        color: 0x00ffcc,
-        transparent: true,
-        opacity: 0.80,
-        side: THREE.DoubleSide,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false
-      });
-      const ring = new THREE.Mesh(ringGeo, ringMat);
-      ring.rotation.x = -Math.PI / 2;
-      ring.position.y = 0.23;
-      group.add(ring);
+      if (!sp.isPlanted) {
+        let proximity = 1.0;
+        let beamFade = 1.0;
+        if (playerPos) {
+          const dist = Math.hypot(playerPos.x - d.x, playerPos.y - d.y, playerPos.z - d.z);
+          if (dist < 28.0) proximity = 1.0 + (1.0 - dist / 28.0) * 0.75;
+          // The beam is a long-range beacon; fade it up close so the camera never sits inside it
+          beamFade = Math.min(1, Math.max(0, (dist - 4) / 8));
+        }
+        const pulse = 0.55 + 0.38 * Math.sin(time * 3.2 + d.id * 1.4);
+        const denied = sp.deniedTimer > 0;
 
-      // 5. Vertical Bioluminescent Beacon Shaft (recognizable from a distance)
-      const beamMat = new THREE.MeshBasicMaterial({
-        color: 0x00ffaa,
-        transparent: true,
-        opacity: 0.18,
-        side: THREE.DoubleSide,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false
-      });
-      const beam = new THREE.Mesh(beamGeo, beamMat);
-      beam.position.y = 3.75;
-      group.add(beam);
+        c.setHex(denied ? 0xff3344 : 0x00ffcc).multiplyScalar(Math.min(1.0, pulse * 0.85 * proximity));
+        this.spotRings.setColorAt(i, c);
+        c.setHex(denied ? 0xff2233 : 0x00ff88).multiplyScalar(Math.min(0.85, (0.35 + 0.3 * pulse) * proximity));
+        this.spotGlows.setColorAt(i, c);
+        c.setHex(0x00ffaa).multiplyScalar(Math.min(0.85, (0.32 + 0.16 * Math.sin(time * 2.4 + d.id)) * proximity) * beamFade);
+        this.spotBeams.setColorAt(i, c);
+        c.setHex(0x55ffcc);
+        this.spotGems.setColorAt(i, c);
 
-      // 6. Floating Seedling Gem / Spore (bobs and rotates above planter)
-      const gemMat = new THREE.MeshBasicMaterial({
-        color: 0x55ffcc
-      });
-      const gem = new THREE.Mesh(gemGeo, gemMat);
-      gem.position.y = 2.5;
-      group.add(gem);
+        dummy.position.set(d.x, d.y, d.z);
+        dummy.rotation.set(0, time * 0.25, 0);
+        dummy.scale.set(1, 1, 1);
+        dummy.updateMatrix();
+        this.spotBeams.setMatrixAt(i, dummy.matrix);
 
-      this.scene.add(group);
+        dummy.position.set(d.x, d.y + 2.4 + Math.sin(time * 2.8 + d.id * 1.8) * 0.22, d.z);
+        dummy.rotation.set(0, time * 1.2, 0);
+        dummy.updateMatrix();
+        this.spotGems.setMatrixAt(i, dummy.matrix);
+      } else {
+        // Reclaimed: steady emerald bed (amber when the vine is withering), no beacon
+        c.setHex(sp.isWithering ? 0xffaa00 : 0x10b981).multiplyScalar(sp.isWithering ? 0.4 + 0.3 * Math.sin(time * 6) : 0.35);
+        this.spotRings.setColorAt(i, c);
+        c.setHex(0x064e3b);
+        this.spotGlows.setColorAt(i, c);
+        dummy.scale.set(0, 0, 0);
+        dummy.updateMatrix();
+        this.spotBeams.setMatrixAt(i, dummy.matrix);
+        this.spotGems.setMatrixAt(i, dummy.matrix);
+      }
+    }
 
-      this.spotMeshes.push({
-        data: sp,
-        mesh: ring, // Maintained for backward compatibility
-        group,
-        rim,
-        soil,
-        groundGlow,
-        ring,
-        beam,
-        gem,
-        isPlanted: false
-      });
-    });
+    this.spotRings.instanceColor.needsUpdate = true;
+    this.spotGlows.instanceColor.needsUpdate = true;
+    this.spotBeams.instanceColor.needsUpdate = true;
+    this.spotGems.instanceColor.needsUpdate = true;
+    this.spotBeams.instanceMatrix.needsUpdate = true;
+    this.spotGems.instanceMatrix.needsUpdate = true;
   }
 
   update(delta, time) {
@@ -886,68 +956,21 @@ export class CityGenerator {
     }
 
     if (this.beaconMesh) {
-      const flash = (Math.sin(time * 3.5) > 0.65) ? 1.0 : 0.15;
-      this.beaconMesh.material.opacity = flash;
+      this.beaconMesh.material.opacity = (Math.sin(time * 3.5) > 0.65) ? 1.0 : 0.15;
     }
 
-    if (this.pinkNeonMat) {
-      this.pinkNeonMat.opacity = 0.72 + 0.16 * Math.sin(time * 3.4);
-    }
-    if (this.cyanNeonMat) {
-      this.cyanNeonMat.opacity = 0.72 + 0.16 * Math.sin(time * 4.2 + 1.2);
-    }
-    if (this.amberNeonMat) {
-      this.amberNeonMat.opacity = 0.78 + 0.14 * Math.sin(time * 2.8 + 2.5);
-    }
+    if (this.pinkNeonMat) this.pinkNeonMat.opacity = 0.72 + 0.16 * Math.sin(time * 3.4);
+    if (this.cyanNeonMat) this.cyanNeonMat.opacity = 0.72 + 0.16 * Math.sin(time * 4.2 + 1.2);
+    if (this.amberNeonMat) this.amberNeonMat.opacity = 0.78 + 0.14 * Math.sin(time * 2.8 + 2.5);
 
-    // Sweep volumetric searchlight cones
     if (this.searchlights) {
-      this.searchlights.forEach(item => {
+      for (const item of this.searchlights) {
         const angleX = Math.sin(time * item.speed + item.phase) * 0.45;
         const angleZ = Math.cos(time * item.speed * 0.8 + item.phase) * 0.35;
         item.mesh.rotation.set(angleX + 0.4, 0, angleZ);
-      });
+      }
     }
 
-    // Dynamic Bioluminescent Planting Spot Animation & Distance Proximity
-    if (this.spotMeshes) {
-      const playerPos = window.__vz_app?.robot?.position;
-
-      this.spotMeshes.forEach(sp => {
-        if (!sp.isPlanted) {
-          // Proximity scaling: stronger indicator when player is close
-          let proximityMult = 1.0;
-          if (playerPos) {
-            const dist = playerPos.distanceTo(new THREE.Vector3(sp.data.x, sp.data.y, sp.data.z));
-            if (dist < 28.0) {
-              proximityMult = 1.0 + (1.0 - dist / 28.0) * 0.75;
-            }
-          }
-
-          // Soft pulsing halo & ground glow
-          const pulse = 0.55 + 0.38 * Math.sin(time * 3.2 + sp.data.id * 1.4);
-          sp.ring.material.opacity = Math.min(1.0, pulse * 0.85 * proximityMult);
-          sp.groundGlow.material.opacity = Math.min(0.85, (0.35 + 0.30 * pulse) * proximityMult);
-
-          // Vertical light shaft
-          sp.beam.material.opacity = Math.min(0.42, (0.16 + 0.08 * Math.sin(time * 2.4 + sp.data.id)) * proximityMult);
-          sp.beam.rotation.y = time * 0.25;
-
-          // Bobbing seedling gem
-          sp.gem.position.y = 2.4 + Math.sin(time * 2.8 + sp.data.id * 1.8) * 0.22;
-          sp.gem.rotation.y = time * 1.2;
-        } else {
-          // Completed / Reclaimed Spot State: clear visual difference
-          if (sp.beam && sp.beam.visible) sp.beam.visible = false;
-          if (sp.gem && sp.gem.visible) sp.gem.visible = false;
-
-          // Tranquil steady emerald bloom on ground
-          sp.ring.material.color.setHex(0x10b981);
-          sp.ring.material.opacity = 0.35;
-          sp.groundGlow.material.color.setHex(0x064e3b);
-          sp.groundGlow.material.opacity = 0.50;
-        }
-      });
-    }
+    this.updatePlantingSpots(delta, time);
   }
 }

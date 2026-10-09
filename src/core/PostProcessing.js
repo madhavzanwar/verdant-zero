@@ -164,6 +164,20 @@ export class PostProcessingManager {
     }
   }
 
+  /**
+   * Optional 4x MSAA on the scene render (WebGL2). Only the scene pass needs it: with the
+   * atmosphere + output passes enabled the composer swaps twice per frame, so RenderPass always
+   * draws into renderTarget2. Off by default — it costs ~35% frame time on software/integrated GPUs.
+   */
+  setAntialias(enabled) {
+    const samples = (enabled && this.renderer.capabilities.isWebGL2) ? 4 : 0;
+    const sceneTarget = this.composer.renderTarget2;
+    if (sceneTarget.samples !== samples) {
+      sceneTarget.samples = samples;
+      sceneTarget.dispose();
+    }
+  }
+
   update(delta, time) {
     if (this.atmospherePass) {
       this.atmospherePass.uniforms.uTime.value = time;

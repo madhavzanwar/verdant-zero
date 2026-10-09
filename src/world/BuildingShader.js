@@ -10,20 +10,13 @@ import * as THREE from 'three';
  * - Living green wave spreading over facade into mossy dark green with warm glowing windows
  */
 
+export const MAX_PLANT_WAVES = 32;
+
 export function createBuildingMaterial() {
   const uniforms = {
     uTime: { value: 0 },
-    uPlantSpots: { value: [
-      new THREE.Vector3(0, -999, 0),
-      new THREE.Vector3(0, -999, 0),
-      new THREE.Vector3(0, -999, 0),
-      new THREE.Vector3(0, -999, 0),
-      new THREE.Vector3(0, -999, 0),
-      new THREE.Vector3(0, -999, 0),
-      new THREE.Vector3(0, -999, 0),
-      new THREE.Vector3(0, -999, 0)
-    ] },
-    uPlantRadii: { value: [0, 0, 0, 0, 0, 0, 0, 0] },
+    uPlantSpots: { value: Array.from({ length: MAX_PLANT_WAVES }, () => new THREE.Vector3(0, -999, 0)) },
+    uPlantRadii: { value: new Array(MAX_PLANT_WAVES).fill(0) },
     uPlantCount: { value: 0 }
   };
 
@@ -74,8 +67,8 @@ export function createBuildingMaterial() {
       #include <common>
 
       uniform float uTime;
-      uniform vec3 uPlantSpots[8];
-      uniform float uPlantRadii[8];
+      uniform vec3 uPlantSpots[32];
+      uniform float uPlantRadii[32];
       uniform int uPlantCount;
 
       varying vec3 vCustomWorldPos;
@@ -111,7 +104,7 @@ export function createBuildingMaterial() {
       float maxLife = 0.0;
       float noiseVal = simpleNoise(vCustomWorldPos * 0.18);
 
-      for (int i = 0; i < 8; i++) {
+      for (int i = 0; i < 32; i++) {
         if (i >= uPlantCount) break;
         float d = distance(vCustomWorldPos, uPlantSpots[i]);
         float waveRadius = uPlantRadii[i];
@@ -135,8 +128,10 @@ export function createBuildingMaterial() {
 
       // Concrete facade turns into calm mossy slate green under green wave
       if (maxLife > 0.0) {
-        vec3 mossColor = vec3(0.06, 0.22, 0.10);
-        gl_FragColor.rgb = mix(gl_FragColor.rgb, mossColor, maxLife * 0.85);
+        // Mixed in linear space: keep values low so the moss reads as deep green at night
+        float ivy = simpleNoise(vCustomWorldPos * 0.9);
+        vec3 mossColor = mix(vec3(0.008, 0.035, 0.018), vec3(0.02, 0.09, 0.04), ivy);
+        gl_FragColor.rgb = mix(gl_FragColor.rgb, mossColor, maxLife * 0.8);
       }
 
       // 4. Procedural Window Grid Flush with Facade Walls
@@ -169,7 +164,7 @@ export function createBuildingMaterial() {
 
               // Under living green wave, windows shift toward radiant green
               if (maxLife > 0.0) {
-                winColor = mix(winColor, vec3(0.15, 0.90, 0.45), maxLife * 0.90);
+                winColor = mix(winColor, vec3(0.2, 0.85, 0.45), maxLife * 0.75);
               }
 
               // Subtle slow flicker on a small fraction of windows

@@ -1,13 +1,14 @@
 {
   "name": "verdant-zero",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
-  "description": "Verdant Zero - A cinematic 3D cyberpunk browser game made with Three.js and Vite",
+  "description": "Verdant Zero — a solarpunk robot gardener reclaims a dead cyberpunk megacity. Three.js + Vite browser game.",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:smoke": "node scripts/smoke-test.mjs"
   },
   "dependencies": {
     "@fontsource/big-shoulders-display": "^5.3.0",

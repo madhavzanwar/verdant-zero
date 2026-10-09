@@ -318,6 +318,12 @@ export class AudioManager {
 
   scheduleNextPadChord() {
     if (!this.ctx || this.ctx.state === 'closed') return;
+    // While suspended (paused / hidden tab) currentTime is frozen; creating chords now would stack
+    // them all on the same timestamp and they would blast together on resume. Retry later instead.
+    if (this.ctx.state !== 'running') {
+      this.padTimer = setTimeout(() => this.scheduleNextPadChord(), 1000);
+      return;
+    }
 
     const chord = this.padChords[this.padChordIndex];
     this.padChordIndex = (this.padChordIndex + 1) % this.padChords.length;
@@ -414,7 +420,7 @@ export class AudioManager {
       if (!this.ctx || this.ctx.state === 'closed') return;
 
       const progress = this.reclamationProgress || 0;
-      if (progress >= 0.18) {
+      if (progress >= 0.18 && this.ctx.state === 'running') {
         // Pentatonic bells: C5, D5, E5, G5, A5, C6, D6
         const pentatonic = [523.25, 587.33, 659.25, 783.99, 880.0, 1046.5, 1174.66];
         const freq = pentatonic[Math.floor(Math.random() * pentatonic.length)];
@@ -542,7 +548,7 @@ export class AudioManager {
       humFilter.Q.setValueAtTime(1.5, t);
 
       this.droneHumGain = this.ctx.createGain();
-      this.droneHumGain.gain.setValueAtTime(0.04, t); // Quiet gentle ambient layer
+      this.droneHumGain.gain.setValueAtTime(0.0001, t); // Driven by setDroneProximity()
 
       this.droneHumOsc.connect(humFilter);
       humFilter.connect(this.droneHumGain);
@@ -713,10 +719,7 @@ export class AudioManager {
     const t = this.ctx.currentTime;
 
     // Filtered noise swoosh
-    const bufferSize = Math.floor(this.ctx.sampleRate * 0.7);
-    const noiseBuffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
-    const data = noiseBuffer.getChannelData(0);
-    for (let i = 0; i < bufferSize; i++) data[i] = (Math.random() * 2 - 1) * 0.3;
+    const noiseBuffer = this.getNoiseBuffer();
 
     const noise = this.ctx.createBufferSource();
     noise.buffer = noiseBuffer;
@@ -793,8 +796,7 @@ export class AudioManager {
    * Slow soft heartbeat for low health (lub-dub sub-sine double pulse)
    */
   playHeartbeat() {
-    if (!this.ctx) return;
-    this.ensureContext();
+    if (!this.ctx || this.ctx.state !== 'running') return;
 
     const t = this.ctx.currentTime;
 
@@ -890,16 +892,16 @@ export class AudioManager {
   }
 
   stopAcidRainSound() {
-    if (this.acidGain && this.ctx) {
-      this.acidGain.gain.linearRampToValueAtTime(0.0001, this.ctx.currentTime + 0.8);
-      setTimeout(() => {
-        if (this.acidSource) {
-          try { this.acidSource.stop(); } catch (e) {}
-          this.acidSource = null;
-        }
-        this.acidGain = null;
-      }, 850);
-    }
+    if (!this.acidGain || !this.ctx) return;
+    const gain = this.acidGain;
+    const source = this.acidSource;
+    this.acidGain = null;
+    this.acidSource = null;
+    const t = this.ctx.currentTime;
+    gain.gain.cancelScheduledValues(t);
+    gain.gain.setValueAtTime(gain.gain.value, t);
+    gain.gain.linearRampToValueAtTime(0.0001, t + 0.8);
+    try { source.stop(t + 0.85); } catch (e) { /* already stopped */ }
   }
 
   playAcidRainWarning() {
@@ -1123,6 +1125,73 @@ export class AudioManager {
     this.playLightPulse();
   }
 
+
+  /** Shared 0.7s white-noise buffer (built once, reused by every noisy SFX). */
+  getNoiseBuffer() {
+    if (!this._noiseBuffer) {
+      const len = Math.floor(this.ctx.sampleRate * 0.7);
+      this._noiseBuffer = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+      const data = this._noiseBuffer.getChannelData(0);
+      for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * 0.3;
+    }
+    return this._noiseBuffer;
+  }
+
+  /** Simple enveloped tone helper for short SFX. */
+  tone(freq, endFreq, duration, peak, type = 'sine', delay = 0, toReverb = 0) {
+    if (!this.ctx || this.ctx.state !== 'running') return;
+    const t = this.ctx.currentTime + delay;
+    const osc = this.ctx.createOscillator();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, t);
+    if (endFreq && endFreq !== freq) osc.frequency.exponentialRampToValueAtTime(endFreq, t + duration);
+    const gain = this.ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.linearRampToValueAtTime(peak, t + 0.012);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + duration);
+    osc.connect(gain);
+    gain.connect(this.sfxBus);
+    if (toReverb > 0 && this.reverbSend) {
+      const send = this.ctx.createGain();
+      send.gain.setValueAtTime(toReverb, t);
+      gain.connect(send);
+      send.connect(this.reverbSend);
+    }
+    osc.start(t);
+    osc.stop(t + duration + 0.02);
+  }
+
+  /** Soft waypoint ping. */
+  playChime() {
+    this.tone(880, 880, 0.35, 0.09, 'sine', 0, 0.3);
+    this.tone(1318.5, 1318.5, 0.4, 0.06, 'sine', 0.07, 0.3);
+  }
+
+  /** Muffled tick while health drains in smog / acid. */
+  playDrainTick() {
+    this.tone(70, 50, 0.16, 0.08, 'sine');
+  }
+
+  /** Rising whine while a drone locks its aim. */
+  playLaserCharge() {
+    this.tone(320, 760, 0.55, 0.05, 'triangle');
+  }
+
+  /** Short soft zap when a drone fires. */
+  playLaserShot() {
+    this.tone(900, 180, 0.18, 0.1, 'triangle');
+  }
+
+  /** Drone hum loudness follows the nearest drone; louder & higher when one is engaging. */
+  setDroneProximity(distance, engaged) {
+    if (!this.droneHumGain || !this.ctx) return;
+    const closeness = Number.isFinite(distance) ? Math.max(0, 1 - distance / 45) : 0;
+    const level = Math.max(0.0001, closeness * (engaged ? 0.09 : 0.045));
+    const t = this.ctx.currentTime;
+    this.droneHumGain.gain.setTargetAtTime(level, t, 0.3);
+    if (this.droneHumOsc) this.droneHumOsc.frequency.setTargetAtTime(engaged ? 123.5 : 98.0, t, 0.5);
+  }
+
   // ==========================================
   // VOLUME & MUTE CONTROLS
   // ==========================================
@@ -1200,6 +1269,7 @@ export class AudioManager {
     this.reclamationProgress = 0.0;
     this.stopAcidRainSound();
     this.stopHeartbeat();
+    this.setDroneProximity(Infinity, false);
   }
 
   destroy() {

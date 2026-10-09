@@ -86,6 +86,10 @@ export class RobotGardener {
     this.dashCooldown = ROBOT_CONFIG.dashCooldown;
     this.dashCooldownTimer = 0.0;
     this.dashVector = new THREE.Vector2();
+    this._moveVector = new THREE.Vector2();
+    this._origin2 = new THREE.Vector2();
+    // Set externally each frame (smog slows the robot down)
+    this.moveSpeedMultiplier = 1.0;
 
     // Hover & Energy state
     this.isHovering = false;
@@ -767,12 +771,11 @@ export class RobotGardener {
     if (isRight) moveX += 1;
 
     // Gamepad API integration
-    const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
+    const gamepads = (input.allowGamepad && navigator.getGamepads) ? navigator.getGamepads() : null;
     const gp = gamepads && gamepads[0];
     let gpRun = false;
     let gpDash = false;
     let gpHover = false;
-    let gpPlant = false;
 
     if (gp) {
       // Left stick for movement (radial deadzone 0.15)
@@ -782,32 +785,19 @@ export class RobotGardener {
         moveX += stickX;
         moveZ += stickZ;
       }
-      // D-Pad
-      if (gp.buttons[12]?.pressed) moveZ -= 1;
-      if (gp.buttons[13]?.pressed) moveZ += 1;
-      if (gp.buttons[14]?.pressed) moveX -= 1;
-      if (gp.buttons[15]?.pressed) moveX += 1;
-
       // Buttons
       gpHover = !!gp.buttons[0]?.pressed; // A (cross)
-      gpDash = !!gp.buttons[1]?.pressed || !!gp.buttons[5]?.pressed; // B (circle) or RB
+      gpDash = !!gp.buttons[5]?.pressed; // RB
       gpRun = !!gp.buttons[6]?.pressed || !!gp.buttons[10]?.pressed; // LT or L3
-      gpPlant = !!gp.buttons[2]?.pressed || !!gp.buttons[3]?.pressed; // X or Y
     }
-
-    // Gamepad plant buffer trigger if supported by input context
-    if (gpPlant && input.attemptPlantWithBuffer && !this.lastGpPlantPressed) {
-      input.attemptPlantWithBuffer();
-    }
-    this.lastGpPlantPressed = gpPlant;
 
     // Camera-relative movement with normalized diagonals
-    const moveVector = new THREE.Vector2(moveX, moveZ);
+    const moveVector = this._moveVector.set(moveX, moveZ);
     if (moveVector.lengthSq() > 1.0) {
       moveVector.normalize();
     }
     if (moveVector.lengthSq() > 0.001) {
-      moveVector.rotateAround(new THREE.Vector2(0, 0), -cameraAngle);
+      moveVector.rotateAround(this._origin2, -cameraAngle);
     }
 
     // Run modifier (Shift key or gamepad trigger/stick)
@@ -818,6 +808,7 @@ export class RobotGardener {
     } else if (isRunning) {
       targetSpeed = this.runSpeed;
     }
+    targetSpeed *= this.moveSpeedMultiplier;
     this.speed = targetSpeed;
 
     // Dash Ability on 'F' key (short cooldown, kinetic burst covering 3-4 robot lengths)
@@ -949,36 +940,45 @@ export class RobotGardener {
     const r = this.collisionRadius;
     let groundY = 0.9;
 
-    for (let c of this.colliders) {
+    for (let i = 0; i < this.colliders.length; i++) {
+      const c = this.colliders[i];
       const withinX = this.position.x > c.minX - r && this.position.x < c.maxX + r;
       const withinZ = this.position.z > c.minZ - r && this.position.z < c.maxZ + r;
+      if (!withinX || !withinZ) continue;
 
-      if (withinX && withinZ) {
-        // Platform / Roof top
-        if (this.position.y >= c.height - 0.25) {
-          groundY = Math.max(groundY, c.height + 0.9);
+      const minY = c.minY || 0;
+      const headY = this.position.y + 0.6;
+
+      if (this.position.y >= c.height - 0.25) {
+        // Standing on the roof / deck
+        groundY = Math.max(groundY, c.height + 0.9);
+      } else if (minY > 0 && headY <= minY + 0.05) {
+        // Passing underneath a skyway or awning
+        continue;
+      } else if (minY > 0 && this.position.y < minY) {
+        // Head bump against the underside
+        this.position.y = minY - 0.6;
+        if (this.velocity.y > 0) this.velocity.y = 0;
+      } else {
+        // Wall sliding: push out along the closest face and zero only the perpendicular velocity
+        const distMinX = Math.abs(this.position.x - (c.minX - r));
+        const distMaxX = Math.abs(this.position.x - (c.maxX + r));
+        const distMinZ = Math.abs(this.position.z - (c.minZ - r));
+        const distMaxZ = Math.abs(this.position.z - (c.maxZ + r));
+        const minDist = Math.min(distMinX, distMaxX, distMinZ, distMaxZ);
+
+        if (minDist === distMinX) {
+          this.position.x = c.minX - r;
+          if (this.velocity.x > 0) this.velocity.x = 0;
+        } else if (minDist === distMaxX) {
+          this.position.x = c.maxX + r;
+          if (this.velocity.x < 0) this.velocity.x = 0;
+        } else if (minDist === distMinZ) {
+          this.position.z = c.minZ - r;
+          if (this.velocity.z > 0) this.velocity.z = 0;
         } else {
-          // Smooth wall sliding: project out along closest wall face normal & zero only perpendicular velocity
-          const distMinX = Math.abs(this.position.x - (c.minX - r));
-          const distMaxX = Math.abs(this.position.x - (c.maxX + r));
-          const distMinZ = Math.abs(this.position.z - (c.minZ - r));
-          const distMaxZ = Math.abs(this.position.z - (c.maxZ + r));
-
-          const minDist = Math.min(distMinX, distMaxX, distMinZ, distMaxZ);
-
-          if (minDist === distMinX) {
-            this.position.x = c.minX - r;
-            if (this.velocity.x > 0) this.velocity.x = 0; // Silky slide along Z
-          } else if (minDist === distMaxX) {
-            this.position.x = c.maxX + r;
-            if (this.velocity.x < 0) this.velocity.x = 0;
-          } else if (minDist === distMinZ) {
-            this.position.z = c.minZ - r;
-            if (this.velocity.z > 0) this.velocity.z = 0; // Silky slide along X
-          } else if (minDist === distMaxZ) {
-            this.position.z = c.maxZ + r;
-            if (this.velocity.z < 0) this.velocity.z = 0;
-          }
+          this.position.z = c.maxZ + r;
+          if (this.velocity.z < 0) this.velocity.z = 0;
         }
       }
     }
