@@ -24,6 +24,7 @@ import { WaypointSystem } from './systems/WaypointSystem.js';
 import { HologramSystem } from './world/HologramSystem.js';
 import { showToast, clearToasts } from './ui/Toasts.js';
 import { escapeHtml } from './ui/escape.js';
+import { Guidance } from './ui/Guidance.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -111,6 +112,20 @@ class VerdantZeroApp {
     this.droneSystem.onPlayerHit = (dmg) => this.survival.applyHit(dmg);
     this.plantSystem.onVineLost = (name) => showToast(`Vine lost${name ? ` at ${name}` : ''} — replant it`, 'bad', 2600);
     this.scoreManager.healthProvider = () => this.survival.health;
+
+    // Movement foley + camera shake
+    this.robot.onEvent = (type, value) => {
+      if (!this.isPlaying()) return;
+      if (type === 'step') this.audio.playFootstep(value);
+      else if (type === 'jump') this.audio.playJump();
+      else if (type === 'dash') { this.audio.playDash(); this.cameraController.addShake(0.12); }
+      else if (type === 'land') {
+        this.audio.playLand(value);
+        if (value > 9) this.cameraController.addShake(Math.min(0.45, (value - 9) / 25));
+      }
+    };
+    const applyHit = this.survival.applyHit.bind(this.survival);
+    this.survival.applyHit = (amount) => { applyHit(amount); this.cameraController.addShake(0.5); };
     this.scoreManager.onGameOver = () => this.handleGameOver();
 
     // Navigation
@@ -125,6 +140,7 @@ class VerdantZeroApp {
       app: this
     });
     this.syncRegistry(true);
+    this.guidance = new Guidance({ scene: this.scene, registry: this.worldRegistry, waypointSystem: this.waypointSystem });
 
     this.initInput();
     this.initMouseLook();
@@ -141,6 +157,7 @@ class VerdantZeroApp {
     this.engine.onQualityChange = (tier) => {
       this.weather.setQuality(tier);
       this.smogSystem.setQuality(tier);
+      this.plantSystem.trees.setVisible(tier !== 'low');
       const label = $('quality-active');
       if (label) label.textContent = this.engine.savedQuality === 'auto' ? `→ ${tier}` : '';
     };
@@ -189,7 +206,7 @@ class VerdantZeroApp {
           if (this.isPlaying()) this.plantBuffer = 0.15;
           break;
         case 'KeyQ':
-          if (this.isPlaying()) this.survival.triggerLightPulse(this.robot.position, this.smogSystem, this.droneSystem);
+          if (this.isPlaying()) this.firePulse();
           break;
         case 'KeyR':
           if (this.isPlaying() || this.scoreManager.state === 'GAMEOVER') this.restartGame();
@@ -256,7 +273,7 @@ class VerdantZeroApp {
     if (edge(9)) this.handleBackKey('Escape');                       // Menu / Start
     if (this.isPlaying()) {
       if (edge(2)) this.plantBuffer = 0.15;                            // X
-      if (edge(4)) this.survival.triggerLightPulse(this.robot.position, this.smogSystem, this.droneSystem); // LB
+      if (edge(4)) this.firePulse();                                   // LB
       if (edge(14)) this.waypointSystem.targetNearestWater();          // D-pad left
       if (edge(15)) this.waypointSystem.targetNearestFertileSpot();    // D-pad right
     }
@@ -267,6 +284,25 @@ class VerdantZeroApp {
     if (this.cameraController.mode === 'TITLE' && edge(0) && !this.anyDialogOpen()) $('btn-play')?.click();
 
     for (let i = 0; i < gp.buttons.length; i++) this.gpPrev[i] = pressed(i);
+  }
+
+  /** Smoothly regrade the whole city as it is reclaimed (sky, fog, colour, smog). */
+  applyRebirth(target, delta) {
+    const cur = this.rebirth || 0;
+    const next = cur + (target - cur) * Math.min(1, delta * 0.8);
+    if (Math.abs(next - cur) < 0.0005 && this.rebirthApplied) return;
+    this.rebirth = next;
+    this.rebirthApplied = true;
+    this.city.skyUniforms.uRebirth.value = next;
+    this.engine.postProcessing?.setRebirth(next);
+    this.survival.setRebirth(next);
+    this.smogSystem.setRebirth(next);
+  }
+
+  firePulse() {
+    if (this.survival.triggerLightPulse(this.robot.position, this.smogSystem, this.droneSystem)) {
+      this.cameraController.addShake(0.25);
+    }
   }
 
   tryPlant() {
@@ -280,6 +316,7 @@ class VerdantZeroApp {
     this.survival.consumeWaterForSeed();
     const risky = this.survival.isRisky(spot.data, this.smogSystem);
     this.plantSystem.plant(spot, risky);
+    this.cameraController.addShake(0.15);
     if (this.waypointSystem.activeWaypoint?.type === 'SPOT') this.waypointSystem.clearWaypoint();
     return true;
   }
@@ -293,9 +330,7 @@ class VerdantZeroApp {
 
     window.addEventListener('contextmenu', (e) => {
       e.preventDefault();
-      if (this.isPlaying() && e.target === this.canvas) {
-        this.survival.triggerLightPulse(this.robot.position, this.smogSystem, this.droneSystem);
-      }
+      if (this.isPlaying() && e.target === this.canvas) this.firePulse();
     });
 
     document.addEventListener('pointerlockchange', () => {
@@ -427,6 +462,11 @@ class VerdantZeroApp {
     this.bindCheckbox('setting-msaa', 'vz_msaa', false, (on) => this.engine.postProcessing?.setAntialias(on));
     this.bindCheckbox('setting-show-fps', 'vz_show_fps', false, (on) => $('debug-fps').classList.toggle('visible', on));
 
+    $('btn-reset-hints').addEventListener('click', (e) => {
+      this.guidance.resetHints();
+      e.target.textContent = 'Hints will show again';
+    });
+
     const quality = $('setting-quality');
     quality.value = this.engine.savedQuality;
     quality.addEventListener('change', () => {
@@ -462,7 +502,7 @@ class VerdantZeroApp {
     $('btn-gameover-restart').addEventListener('click', () => this.restartGame());
     $('btn-gameover-menu').addEventListener('click', () => this.returnToMainMenu());
     $('pulse-ability').addEventListener('click', () => {
-      if (this.isPlaying()) this.survival.triggerLightPulse(this.robot.position, this.smogSystem, this.droneSystem);
+      if (this.isPlaying()) this.firePulse();
     });
 
     // Leaderboard
@@ -557,15 +597,13 @@ class VerdantZeroApp {
     this.cameraController.startGameplayTransition(this.robot.position);
     this.scoreManager.startGame();
     this.requestPointerLock();
-    setTimeout(() => {
-      if (this.isPlaying()) showToast('Find a glowing planter and press E — G marks the nearest one', 'info', 4500);
-    }, 1200);
   }
 
   openPauseMenu() {
     if (this.scoreManager.state === 'GAMEOVER') return;
     this.isPaused = true;
     this.keys.clear();
+    this.audio.setHoverThrust(0);
     this.scoreManager.pause();
     this.audio.handleTabVisibility(true);
     $('pause-title').textContent = 'Paused';
@@ -595,6 +633,7 @@ class VerdantZeroApp {
   setMapOpen(open) {
     this.isMapOpen = open;
     this.keys.clear();
+    this.audio.setHoverThrust(0);
     if (open) {
       this.scoreManager.pause();
       this.releasePointerLock();
@@ -612,6 +651,7 @@ class VerdantZeroApp {
     this.plantBuffer = 0;
     this.scoreSubmitted = false;
     clearToasts();
+    this.guidance?.reset();
     this.waypointSystem.clearWaypoint();
     if (this.isMapOpen) this.mapSystem.closeFullMap();
     this.worldRegistry.reset();
@@ -622,6 +662,9 @@ class VerdantZeroApp {
     this.droneSystem.reset();
     this.smogSystem.reset();
     this.weather.setRainAcidic(false);
+    this.rebirth = 0;
+    this.rebirthApplied = false;
+    this.applyRebirth(0, 1);
     this.scoreManager.reset();
     this.syncRegistry(true);
 
@@ -662,6 +705,8 @@ class VerdantZeroApp {
     this.releasePointerLock();
     this.keys.clear();
     this.plantSystem.setPrompt('');
+    this.guidance.reset();
+    this.audio.setHoverThrust(0);
     this.audio.setLowHealth(false);
     this.updatePointerPrompt();
     this.activeLbTab = 'all';
@@ -756,6 +801,7 @@ class VerdantZeroApp {
     this.scoreManager.setPlantedCount(this.plantSystem.plantedCount);
     this.scoreManager.update(delta);
     this.audio.setReclamationProgress(this.plantSystem.reclaimedPercentage / 100);
+    this.applyRebirth(this.plantSystem.reclaimedPercentage / 100, delta);
     if (this.scoreManager.state !== 'PLAYING') return;
 
     this.smogSystem.update(delta, this.gameTime, this.plantSystem.activeVines, this.robot.position);
@@ -765,6 +811,7 @@ class VerdantZeroApp {
       velocity: this.robot.velocity
     });
     this.droneSystem.updateScreenIndicators(this.camera);
+    this.audio.setHoverThrust(this.robot.isHovering ? 1 : 0);
     this.survival.update(delta, this.gameTime, this.robot, this.smogSystem, this.weather, this.plantSystem.activeVines);
     if (this.scoreManager.state !== 'PLAYING') return;
 
@@ -772,6 +819,11 @@ class VerdantZeroApp {
     this.syncRegistry();
     this.waypointSystem.update(delta, this.gameTime);
     this.mapSystem.update(delta, this.gameTime);
+    this.guidance.update({
+      delta, time, gameTime: this.gameTime, robot: this.robot, survival: this.survival,
+      droneSystem: this.droneSystem, plantSystem: this.plantSystem,
+      nearSpot, canAfford: this.survival.canAffordPlant()
+    });
   }
 }
 

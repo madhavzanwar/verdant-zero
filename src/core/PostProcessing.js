@@ -178,6 +178,11 @@ export class PostProcessingManager {
     }
   }
 
+  /** 0 = dead grey city (30% desaturated), 1 = fully reclaimed (colour restored). */
+  setRebirth(progress) {
+    if (this.atmospherePass) this.atmospherePass.uniforms.uDesaturation.value = 0.30 * (1 - progress * 0.8);
+  }
+
   update(delta, time) {
     if (this.atmospherePass) {
       this.atmospherePass.uniforms.uTime.value = time;

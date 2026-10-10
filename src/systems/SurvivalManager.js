@@ -39,6 +39,8 @@ export class SurvivalManager {
     this.nextDropId = 1;
 
     this._pullDir = new THREE.Vector3();
+    this._fogDead = new THREE.Color(0x281648);
+    this._fogReborn = new THREE.Color(0x0f3a3a);
     this._fogBase = new THREE.Color(0x281648);
     this._fogAcid = new THREE.Color(0x3a4a18);
 
@@ -46,6 +48,12 @@ export class SurvivalManager {
     this.initPulseVisual();
     this.cacheDOM();
     this.reset();
+  }
+
+  /** Rebirth progress (0..1) shifts the resting fog colour from toxic violet to teal. */
+  setRebirth(progress) {
+    this._fogBase.copy(this._fogDead).lerp(this._fogReborn, progress);
+    if (this.scene.fog) this.scene.fog.density = 0.0023 - progress * 0.0008;
   }
 
   setPlantSystem(ps) {

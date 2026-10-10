@@ -138,6 +138,7 @@
           </div>
           <label class="setting-check"><input type="checkbox" id="setting-invert-y"><span>Invert vertical look</span></label>
           <label class="setting-check"><input type="checkbox" id="setting-cam-smoothing"><span>Smooth camera</span></label>
+          <button id="btn-reset-hints" class="btn btn-small" type="button">Replay tutorial hints</button>
 
           <h3 class="section-title">Display</h3>
           <div class="setting-item">
@@ -199,6 +200,11 @@
             <span id="combo-badge-text" class="combo-text">×1</span>
           </div>
         </div>
+        <div id="compass" class="compass" aria-hidden="true">
+          <div id="compass-track" class="compass-track"></div>
+          <i class="compass-center"></i>
+        </div>
+        <div id="hud-objective-text" class="objective-text" aria-live="polite"></div>
         <div class="objective">
           <span class="objective-label">Planters</span>
           <span id="hud-planters" class="objective-count">0 / 28</span>
@@ -253,6 +259,15 @@
       <!-- Context prompt -->
       <div id="plant-prompt" class="plant-prompt" aria-live="polite">
         <span class="kbd">E</span><span id="plant-prompt-text">Plant seed</span>
+      </div>
+
+      <!-- One-time coaching hints -->
+      <div id="coach" class="coach" aria-live="polite">
+        <span id="coach-icon" class="coach-icon"></span>
+        <div class="coach-body">
+          <span id="coach-title" class="coach-title"></span>
+          <span id="coach-text" class="coach-text"></span>
+        </div>
       </div>
 
       <!-- Toasts -->

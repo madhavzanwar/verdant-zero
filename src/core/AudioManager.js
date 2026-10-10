@@ -1126,6 +1126,96 @@ export class AudioManager {
   }
 
 
+
+  // ==========================================
+  // MOVEMENT FOLEY (inspired by Bruno Simon's folio sound design: every sound is throttled with a
+  // minimum interval, scaled by impact velocity and slightly pitch-randomised so repeats never
+  // sound identical)
+  // ==========================================
+  canPlay(name, minIntervalMs) {
+    if (!this.ctx || this.ctx.state !== 'running') return false;
+    const now = performance.now();
+    this._lastPlayed = this._lastPlayed || {};
+    if (now - (this._lastPlayed[name] || 0) < minIntervalMs) return false;
+    this._lastPlayed[name] = now;
+    return true;
+  }
+
+  noiseBurst(duration, filterType, freqStart, freqEnd, q, peak, delay = 0) {
+    const t = this.ctx.currentTime + delay;
+    const src = this.ctx.createBufferSource();
+    src.buffer = this.getNoiseBuffer();
+    src.playbackRate.value = 0.9 + Math.random() * 0.2;
+    const filter = this.ctx.createBiquadFilter();
+    filter.type = filterType;
+    filter.Q.value = q;
+    filter.frequency.setValueAtTime(freqStart, t);
+    if (freqEnd !== freqStart) filter.frequency.exponentialRampToValueAtTime(freqEnd, t + duration);
+    const gain = this.ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.linearRampToValueAtTime(peak, t + Math.min(0.02, duration * 0.3));
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + duration);
+    src.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.sfxBus);
+    src.start(t, Math.random() * 0.3);
+    src.stop(t + duration + 0.02);
+  }
+
+  /** Soft servo "tik" + rubber foot thump. intensity 0..1 (run = 1). */
+  playFootstep(intensity = 0.6) {
+    if (!this.canPlay('step', 110)) return;
+    const pitch = 0.9 + Math.random() * 0.2;
+    this.noiseBurst(0.05, 'bandpass', 2600 * pitch, 2600 * pitch, 1.4, 0.035 * intensity);
+    this.tone(130 * pitch, 70, 0.09, 0.07 * intensity, 'sine');
+  }
+
+  /** Landing thud scaled by vertical impact speed (m/s). */
+  playLand(speed) {
+    if (speed < 3 || !this.canPlay('land', 150)) return;
+    const k = Math.min(1, (speed - 3) / 12);
+    this.tone(95, 38, 0.22, 0.08 + 0.17 * k, 'sine');
+    this.noiseBurst(0.18, 'lowpass', 900, 200, 0.7, 0.05 + 0.1 * k);
+  }
+
+  playJump() {
+    if (!this.canPlay('jump', 120)) return;
+    this.tone(320, 620, 0.12, 0.05, 'sine');
+  }
+
+  playDash() {
+    if (!this.canPlay('dash', 200)) return;
+    this.noiseBurst(0.28, 'bandpass', 500, 2400, 1.1, 0.16);
+    this.tone(220, 520, 0.18, 0.04, 'triangle');
+  }
+
+  /** Continuous thruster hiss while hovering (0 = off, 1 = full thrust). */
+  setHoverThrust(level) {
+    if (!this.ctx || !this.sfxBus) return;
+    if (!this.hoverSource) {
+      const len = Math.floor(this.ctx.sampleRate * 2);
+      const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+      this.hoverSource = this.ctx.createBufferSource();
+      this.hoverSource.buffer = buf;
+      this.hoverSource.loop = true;
+      this.hoverFilter = this.ctx.createBiquadFilter();
+      this.hoverFilter.type = 'bandpass';
+      this.hoverFilter.frequency.value = 700;
+      this.hoverFilter.Q.value = 0.9;
+      this.hoverGain = this.ctx.createGain();
+      this.hoverGain.gain.value = 0.0001;
+      this.hoverSource.connect(this.hoverFilter);
+      this.hoverFilter.connect(this.hoverGain);
+      this.hoverGain.connect(this.sfxBus);
+      this.hoverSource.start();
+    }
+    const t = this.ctx.currentTime;
+    this.hoverGain.gain.setTargetAtTime(Math.max(0.0001, level * 0.07), t, 0.06);
+    this.hoverFilter.frequency.setTargetAtTime(600 + level * 500, t, 0.1);
+  }
+
   /** Shared 0.7s white-noise buffer (built once, reused by every noisy SFX). */
   getNoiseBuffer() {
     if (!this._noiseBuffer) {
@@ -1267,6 +1357,7 @@ export class AudioManager {
 
   reset() {
     this.reclamationProgress = 0.0;
+    this.setHoverThrust(0);
     this.stopAcidRainSound();
     this.stopHeartbeat();
     this.setDroneProximity(Infinity, false);

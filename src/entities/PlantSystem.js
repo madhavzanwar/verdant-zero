@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { MAX_PLANT_WAVES } from '../world/BuildingShader.js';
+import { ReclaimTrees } from '../world/ReclaimTrees.js';
 
 /**
  * Plant & Procedural Vine Growth System
@@ -35,7 +36,7 @@ const VineShader = {
     void main() {
       if (vUv.x > uGrowth) discard;
 
-      vec3 barkColor = vec3(0.08, 0.26, 0.12);
+      vec3 barkColor = vec3(0.02, 0.07, 0.035);
       float sap = smoothstep(0.42, 0.58, sin(vUv.y * 3.14159));
       float pulse = 0.5 + 0.5 * sin(vUv.x * 24.0 - uTime * 4.0);
       vec3 sapColor = vec3(0.0, 1.0, 0.55) * (sap * pulse * 1.5);
@@ -75,6 +76,7 @@ export class PlantSystem {
     this._leafDead = new THREE.Color(0x6b5a3a);
     this._flowerColors = [new THREE.Color(0x00f0ff), new THREE.Color(0xff3388), new THREE.Color(0x00ffaa)];
 
+    this.trees = new ReclaimTrees(scene, this.totalSpots);
     this.initInstancedFoliage();
     this.initBursts();
     this.initFireflies();
@@ -321,6 +323,7 @@ export class PlantSystem {
       return { index: slot * FLOWERS_PER_VINE + i, t, x: p.x, y: p.y, z: p.z, open: 0 };
     });
 
+    this.trees.add(slot, pos, pos.y > 1);
     this.activeVines.push({
       mesh, mat, curve, leaves, flowers, pos, spotMesh,
       growth: 0, health: 1, matured: false, isInsideSmog: isRisky,
@@ -370,6 +373,7 @@ export class PlantSystem {
     this.flowerMesh.instanceMatrix.needsUpdate = true;
 
     if (vine.spotMesh) {
+      this.trees.remove(vine.spotMesh.index);
       vine.spotMesh.isPlanted = false;
       vine.spotMesh.isWithering = false;
       this.clearBuildingWave(vine.spotMesh.index);
@@ -433,6 +437,7 @@ export class PlantSystem {
       }
       if (v.spotMesh) v.spotMesh.isWithering = v.health < 0.6;
       v.mat.uniforms.uHealth.value = v.health;
+      this.trees.setHealth(v.spotMesh.index, v.health);
       v.mat.uniforms.uTime.value = time;
 
       if (v.growth < 1) {
@@ -443,6 +448,7 @@ export class PlantSystem {
         if (v.growth >= 1 && !v.matured) {
           v.matured = true;
           this.maturedCount++;
+          this.trees.startGrowth(v.spotMesh.index);
           if (this.scoreManager) this.scoreManager.recordVineMatured();
         }
       }
@@ -501,6 +507,7 @@ export class PlantSystem {
       }
     }
 
+    this.trees.update(delta, time);
     this.updateParticles(delta, time);
   }
 

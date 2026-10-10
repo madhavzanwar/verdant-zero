@@ -100,6 +100,61 @@ export class CityGenerator {
     this.buildNeonGlyphSigns();
     this.buildVolumetricLightShafts();
     this.setupPlantingSpots();
+    this.buildSpawnDecals();
+  }
+
+  /**
+   * Control hints painted on the street at the spawn point (in the spirit of Bruno Simon's
+   * folio floor labels): the first thing the camera shows when a run starts.
+   */
+  buildSpawnDecals() {
+    const c = document.createElement('canvas');
+    c.width = 1024;
+    c.height = 640;
+    const ctx = c.getContext('2d');
+    const green = '#2df59a';
+    const key = (x, y, w, label) => {
+      ctx.strokeStyle = green;
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.roundRect(x, y, w, 84, 14);
+      ctx.stroke();
+      ctx.fillStyle = green;
+      ctx.font = 'bold 42px Inter, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, x + w / 2, y + 45);
+    };
+    const text = (x, y, label) => {
+      ctx.fillStyle = 'rgba(214, 255, 236, 0.9)';
+      ctx.font = 'bold 40px Inter, sans-serif';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, x, y + 45);
+    };
+    [['W', 0], ['A', 1], ['S', 2], ['D', 3]].forEach(([l, i]) => key(40 + i * 100, 40, 84, l));
+    text(450, 40, 'MOVE');
+    key(40, 180, 300, 'SPACE');
+    text(370, 180, 'JUMP · HOLD TO HOVER');
+    key(40, 320, 84, 'E');
+    text(150, 320, 'PLANT');
+    key(420, 320, 84, 'Q');
+    text(530, 320, 'PULSE');
+    key(40, 460, 84, 'G');
+    text(150, 460, 'FIND PLANTER');
+    key(520, 460, 84, 'T');
+    text(630, 460, 'FIND WATER');
+
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = 4;
+    const mat = new THREE.MeshBasicMaterial({
+      map: tex, transparent: true, opacity: 0.6, depthWrite: false, blending: THREE.AdditiveBlending
+    });
+    const decal = new THREE.Mesh(new THREE.PlaneGeometry(8, 5), mat);
+    decal.rotation.x = -Math.PI / 2;
+    decal.position.set(-3.6, 0.03, -7.5);
+    this.scene.add(decal);
   }
 
   buildGroundAndStreets() {
@@ -260,7 +315,9 @@ export class CityGenerator {
     // 1. Full Gradient Sky Dome
     // Inverted sphere with custom shader: deep indigo zenith -> purple mid-sky -> glowing magenta & orange horizon
     const skyDomeGeo = new THREE.SphereGeometry(1200, 32, 24);
+    this.skyUniforms = { uRebirth: { value: 0 } };
     const skyDomeMat = new THREE.ShaderMaterial({
+      uniforms: this.skyUniforms,
       side: THREE.BackSide,
       depthWrite: false,
       vertexShader: /* glsl */ `
@@ -273,6 +330,7 @@ export class CityGenerator {
       `,
       fragmentShader: /* glsl */ `
         varying vec3 vWorldPos;
+        uniform float uRebirth;
         void main() {
           vec3 dir = normalize(vWorldPos);
           float h = dir.y; // -1 to 1
@@ -302,6 +360,11 @@ export class CityGenerator {
           float az = atan(dir.z, dir.x);
           float duskSpread = pow(max(0.0, sin(az + 0.9)), 2.8);
           col += vec3(0.35, 0.12, 0.22) * duskSpread * (1.0 - smoothstep(0.0, 0.4, h));
+
+          // Rebirth: as the city is reclaimed the toxic magenta horizon gives way to an emerald dawn
+          vec3 reborn = mix(vec3(0.03, 0.10, 0.12), vec3(0.18, 0.62, 0.42), 1.0 - smoothstep(-0.1, 0.35, h));
+          reborn += vec3(0.45, 0.35, 0.12) * pow(max(0.0, 1.0 - abs(h) * 6.0), 3.0) * 0.6;
+          col = mix(col, reborn, uRebirth * 0.85);
 
           gl_FragColor = vec4(col, 1.0);
         }

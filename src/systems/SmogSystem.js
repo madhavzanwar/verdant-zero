@@ -225,6 +225,12 @@ export class SmogSystem {
     return { playerSmog };
   }
 
+  /** Reclaimed districts breathe: smog clouds and ground mist thin out as progress rises. */
+  setRebirth(progress) {
+    this.cloudMesh.material.opacity = 0.38 * (1 - progress * 0.65);
+    this.groundMist.material.opacity = 0.22 * (1 - progress * 0.8);
+  }
+
   setQuality(tier) {
     if (tier === 'low') {
       this.activeCloudCount = 35;

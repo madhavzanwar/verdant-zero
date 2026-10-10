@@ -88,6 +88,8 @@ export class RobotGardener {
     this.dashVector = new THREE.Vector2();
     this._moveVector = new THREE.Vector2();
     this._origin2 = new THREE.Vector2();
+    // Event hook for sounds / camera shake: (type, value) => void
+    this.onEvent = null;
     // Set externally each frame (smog slows the robot down)
     this.moveSpeedMultiplier = 1.0;
 
@@ -744,6 +746,10 @@ export class RobotGardener {
     this.thrusterParticles.geometry.attributes.position.needsUpdate = true;
   }
 
+  emit(type, value = 0) {
+    if (this.onEvent) this.onEvent(type, value);
+  }
+
   setSpeedScale(scale) {
     this.speedScale = Math.max(0.8, Math.min(1.5, scale));
     ROBOT_CONFIG.userSpeedScale = this.speedScale;
@@ -817,6 +823,7 @@ export class RobotGardener {
 
     if (dashPressed && this.dashCooldownTimer <= 0 && !this.isDashing) {
       this.isDashing = true;
+      this.emit('dash');
       this.dashTimer = this.dashDuration;
       this.dashCooldownTimer = this.dashCooldown;
 
@@ -856,6 +863,7 @@ export class RobotGardener {
     // Ground Jump on Space
     if (spacePressed && this.isGrounded && !this.lastSpacePressed) {
       this.velocity.y = this.jumpImpulse;
+      this.emit('jump');
       this.isGrounded = false;
       this.isHovering = false;
     }
@@ -886,7 +894,9 @@ export class RobotGardener {
     const subDelta = delta / substeps;
     this.wasGrounded = this.isGrounded;
 
+    let impactSpeed = 0;
     for (let step = 0; step < substeps; step++) {
+      if (this.velocity.y < 0) impactSpeed = -this.velocity.y;
       this.position.x += this.velocity.x * subDelta;
       this.position.y += this.velocity.y * subDelta;
       this.position.z += this.velocity.z * subDelta;
@@ -903,6 +913,7 @@ export class RobotGardener {
 
     // Landing detection (Squash impact & Dust puff)
     if (!this.wasGrounded && this.isGrounded) {
+      this.emit('land', impactSpeed);
       this.squash.y = 0.78;
       this.squash.xz = 1.18;
       this.spawnLandingDust();
@@ -1032,7 +1043,10 @@ export class RobotGardener {
 
     if (this.isGrounded && isMoving) {
       this.distanceTraveled += horizontalSpeed * delta;
+      const prevStep = Math.floor(this.walkCyclePhase / Math.PI);
       this.walkCyclePhase = (this.distanceTraveled / strideLength) * Math.PI * 2;
+      // Each half cycle is one foot planting
+      if (Math.floor(this.walkCyclePhase / Math.PI) !== prevStep) this.emit('step', isRunning ? 1 : 0.6);
     }
 
     // 4. Two-Bone Leg Kinematics Solver

@@ -119,6 +119,21 @@ const moved = await page.evaluate(() => {
 check('W moves the robot forward', moved > 8, `${moved.toFixed(1)}m in 1s`);
 await shot('02_gameplay');
 
+// --- Guidance: objective line, compass markers, coach hint
+const guide = await page.evaluate(() => {
+  window.step(0.5);
+  const markers = [...document.querySelectorAll('.compass-marker')].filter(m => m.style.display !== 'none');
+  return {
+    objective: document.getElementById('hud-objective-text').textContent,
+    spotMarkers: markers.filter(m => m.classList.contains('spot')).length,
+    coach: document.getElementById('coach').classList.contains('visible'),
+    coachTitle: document.getElementById('coach-title').textContent
+  };
+});
+check('Objective line names the next planter', /^Plant at .+ · \d+m/.test(guide.objective), guide.objective);
+check('Compass shows planter markers', guide.spotMarkers >= 3, `markers=${guide.spotMarkers}`);
+check('Coach hint teaches movement on first run', guide.coach && guide.coachTitle === 'Get moving', guide.coachTitle);
+
 // --- Jump + hover reaches a skyway deck (11m)
 const deck = await page.evaluate(() => {
   const app = window.__vz_app;
@@ -135,14 +150,22 @@ const plant = await page.evaluate(() => {
   const app = window.__vz_app;
   window.teleport(-12, 0.9, -12);
   const water0 = app.survival.water;
+  const keycap = app.guidance.keycap.visible;
   window.press('KeyE'); window.step(0.3);
-  return { water0, water: app.survival.water, vines: app.plantSystem.activeVines.length, score: app.scoreManager.score };
+  return { water0, keycap, water: app.survival.water, vines: app.plantSystem.activeVines.length, score: app.scoreManager.score };
 });
 check('Planting consumes 25 water', plant.water0 - plant.water === 25, JSON.stringify(plant));
 check('Planting creates a vine and scores', plant.vines === 1 && plant.score >= 100);
+check('Floating E keycap marks the planter in range', plant.keycap);
 await page.evaluate(() => window.step(6));
 check('Vine matures and reclaims 1/28', await page.evaluate(() => {
   const p = window.__vz_app.plantSystem; return p.maturedCount === 1 && Math.abs(p.reclaimedPercentage - 100 / 28) < 0.1;
+}));
+check('A procedural tree grows on the matured planter', await page.evaluate(() => {
+  const trees = window.__vz_app.plantSystem.trees;
+  window.step(4);
+  const t = [...trees.trees.values()][0];
+  return !!t && t.grow === 1 && trees.variants.some(v => v.bark.count === 1);
 }));
 await shot('03_planted');
 
@@ -170,6 +193,26 @@ const water = await page.evaluate(() => {
   return { before, after: app.survival.water };
 });
 check('Collecting a water drop adds 25', water.after - water.before === 25, JSON.stringify(water));
+
+const separation = await page.evaluate(() => {
+  const app = window.__vz_app;
+  app.droneSystem.reset();
+  // All three drones steer to the same point; without separation they would stack on it
+  const pick = app.droneSystem.pickPatrolTarget;
+  app.droneSystem.pickPatrolTarget = (d) => d.patrolTarget.set(60, 20, 60);
+  for (let i = 0; i < 3; i++) {
+    app.droneSystem.spawnDrone();
+    app.droneSystem.drones[i].position.set(60 + i * 0.1, 20, 40);
+  }
+  window.step(4);
+  app.droneSystem.pickPatrolTarget = pick;
+  const ds = app.droneSystem.drones;
+  let min = Infinity;
+  for (let i = 0; i < ds.length; i++) for (let j = i + 1; j < ds.length; j++) min = Math.min(min, ds[i].position.distanceTo(ds[j].position));
+  app.droneSystem.reset();
+  return min;
+});
+check('Yuka separation keeps drones apart', separation > 3, `min distance ${separation.toFixed(1)}m`);
 
 // --- Light pulse stuns drones & has a 10s cooldown
 const pulse = await page.evaluate(() => {
@@ -283,6 +326,10 @@ const victory = await page.evaluate(() => {
   window.step(8);
   return { state: app.scoreManager.state, reason: app.scoreManager.endReason, planted: app.plantSystem.plantedCount, pct: app.plantSystem.reclaimedPercentage };
 });
+check('City regrades as it is reclaimed', await page.evaluate(() => {
+  window.step(3);
+  return window.__vz_app.city.skyUniforms.uRebirth.value > 0.5;
+}));
 check('Planting all 28 planters wins the run', victory.state === 'GAMEOVER' && victory.reason === 'victory', JSON.stringify(victory));
 await page.evaluate(() => window.step(1.5));
 await shot('05_victory');

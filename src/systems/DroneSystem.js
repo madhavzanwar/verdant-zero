@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { EntityManager, Vehicle, ArriveBehavior, SeparationBehavior, WanderBehavior, Vector3 as YukaVector3 } from 'yuka';
 
 /**
  * Purge Drone System
@@ -9,7 +10,10 @@ import * as THREE from 'three';
  *   CHASE    keep ~8m from the player and fire telegraphed laser shots: a thin aim line locks onto
  *            where the player was, then fires 0.6s later. Moving or dashing out of the line dodges it.
  *   STUNNED  hit by the Light Pulse: blind, sinking and slowly spinning for 6s
- * Population: first drone at 0:45, one more every 90s (cap 5). Shared geometry/materials; pooled screen-edge indicators.
+ * Population: first drone at 0:45, one more every 90s (cap 5).
+ * Movement uses Yuka (MIT) steering: each drone is a Vehicle with Arrive (to the target the state
+ * machine picks), Separation (drones never stack inside each other) and a light Wander while
+ * patrolling, so flight curves and decelerates naturally instead of moving in straight lines. Shared geometry/materials; pooled screen-edge indicators.
  */
 
 const DETECT_RADIUS = 14;
@@ -35,6 +39,8 @@ export class DroneSystem {
     this.nextId = 1;
     this.plantSystem = null;
     this.onPlayerHit = null;
+
+    this.entityManager = new EntityManager();
 
     this.edgeArrowsContainer = document.getElementById('drone-indicators');
     this.chipDrone = document.getElementById('chip-drone');
@@ -108,7 +114,23 @@ export class DroneSystem {
     beam.frustumCulled = false;
     this.scene.add(beam);
 
+    const vehicle = new Vehicle();
+    vehicle.maxSpeed = 9;
+    vehicle.maxForce = 22;
+    vehicle.updateNeighborhood = true;
+    vehicle.neighborhoodRadius = 9;
+    const arrive = new ArriveBehavior(new YukaVector3(), 2.2, 0.2);
+    const separation = new SeparationBehavior();
+    separation.weight = 2.0;
+    const wander = new WanderBehavior(2, 6, 3);
+    wander.weight = 0.35;
+    vehicle.steering.add(arrive);
+    vehicle.steering.add(separation);
+    vehicle.steering.add(wander);
+    this.entityManager.add(vehicle);
+
     return {
+      vehicle, arrive, separation, wander,
       id: `drone_${this.nextId++}`,
       group, ring, eye, eyeMat, cone, beam, beamMat,
       position: new THREE.Vector3(),
@@ -136,6 +158,7 @@ export class DroneSystem {
     this.pickPatrolTarget(d);
     d.group.position.copy(d.position);
     this.scene.add(d.group);
+    this.setState(d, 'PATROL');
     this.drones.push(d);
   }
 
@@ -157,6 +180,10 @@ export class DroneSystem {
   }
 
   setState(d, state) {
+    const stunned = state === 'STUNNED';
+    d.arrive.active = !stunned;
+    d.wander.active = state === 'PATROL';
+    if (stunned) d.vehicle.velocity.set(0, 0, 0);
     d.state = state;
     d.stateTimer = 0;
     d.aiming = false;
@@ -204,7 +231,24 @@ export class DroneSystem {
         if (this.audio) this.audio.playDroneAlert();
       }
 
+    }
+
+    // Yuka steering step: positions set by gameplay code (spawn, stun sink, teleports) are pushed
+    // into the vehicles first, then the steered result is copied back.
+    for (const d of this.drones) d.vehicle.position.set(d.position.x, d.position.y, d.position.z);
+    this.entityManager.update(delta);
+
+    for (const d of this.drones) {
+      const v = d.vehicle;
+      if (d.state === 'STUNNED') v.velocity.set(0, 0, 0);
+      d.position.set(v.position.x, v.position.y, v.position.z);
       this.avoidBuildings(d);
+      if (d.state === 'PATROL' || d.state === 'BURN') {
+        const speed = Math.hypot(v.velocity.x, v.velocity.z);
+        if (speed > 0.5) d.group.rotation.y = Math.atan2(v.velocity.x, v.velocity.z);
+      }
+      // Lean into the direction of travel
+      d.group.rotation.x = Math.min(0.35, v.getSpeed() * 0.025);
 
       // Visual position (bob), eye colour
       d.group.position.set(d.position.x, d.position.y + Math.sin(gameTime * 3 + d.phase) * 0.3, d.position.z);
@@ -226,15 +270,11 @@ export class DroneSystem {
     }
   }
 
-  moveTowards(d, target, speed, delta) {
-    _v1.subVectors(target, d.position);
-    const dist = _v1.length();
-    if (dist > 0.01) {
-      _v1.multiplyScalar(Math.min(dist, speed * delta) / dist);
-      d.position.add(_v1);
-      d.group.rotation.y = Math.atan2(_v1.x, _v1.z);
-    }
-    return dist;
+  /** Steer towards a target (Yuka Arrive); returns the current distance to it. */
+  moveTowards(d, target, speed) {
+    d.arrive.target.set(target.x, target.y, target.z);
+    d.vehicle.maxSpeed = speed;
+    return d.position.distanceTo(target);
   }
 
   updatePatrol(d, delta, vines) {
@@ -284,6 +324,7 @@ export class DroneSystem {
   }
 
   updateAlert(d, delta, playerPos) {
+    this.moveTowards(d, d.position, 2); // brake and hover in place while locking on
     d.group.rotation.y = Math.atan2(playerPos.x - d.position.x, playerPos.z - d.position.z);
     if (d.stateTimer >= 0.8) {
       this.setState(d, 'CHASE');
@@ -448,6 +489,7 @@ export class DroneSystem {
     for (const d of this.drones) {
       this.scene.remove(d.group);
       this.scene.remove(d.beam);
+      this.entityManager.remove(d.vehicle);
       d.eyeMat.dispose();
       d.beamMat.dispose();
     }

@@ -65,6 +65,25 @@ GPU memory: the smoke test plays 10 consecutive runs (planting, then restarting)
   Latin subsets of the weights actually used are bundled (Inter 400/500/600, Big Shoulders
   700/800). Font files: 328 KB → 240 KB, while shipping five real weights instead of two.
 
+## Round 2: guidance, trees, Yuka
+
+Same method, compared against the previous commit (`a768471`). Two scenarios:
+
+- **Early:** the normal start of a run.
+- **Reborn:** 27 of 28 planters reclaimed, all trees grown.
+
+| Scenario | Previous | Now | Notes |
+|---|---|---|---|
+| Early: FPS | 5.80 – 6.19 | 5.86 – 6.06 | No measurable change |
+| Early: update | 0.84 – 0.94 ms | 1.16 – 1.35 ms | Compass/objective DOM (throttled to 30/4 Hz) + Yuka |
+| Reborn: FPS | 5.46 – 5.59 | 4.93 – 5.06 | About 9% slower: 27 trees add about 36k triangles |
+| Reborn: triangles | 80.7k | 116.9k | Trees are about 1.1–1.6k triangles each, instanced (6 draw calls total) |
+
+Mitigations:
+- Ungrown trees cost nothing: instances are packed and `count` is trimmed.
+- The **Low** quality tier hides the trees; vines and moss still show progress.
+- EZ-Tree runs once per variant at load, not per tree.
+
 ## Adaptive quality
 
 - **Auto** (default) benchmarks for 2 seconds on the title screen and picks High, Medium or Low.

@@ -60,11 +60,28 @@ export class CameraController {
     // Smoothed target look point
     this.currentLookTarget = new THREE.Vector3();
 
+    // Trauma-based screen shake (0..1), decays over time; offset = trauma² for a punchy falloff
+    this.trauma = 0;
+
     // Scratch vectors (avoid per-frame allocations)
     this._offset = new THREE.Vector3();
     this._ideal = new THREE.Vector3();
     this._look = new THREE.Vector3();
     this._rayDir = new THREE.Vector3();
+  }
+
+  addShake(amount) {
+    this.trauma = Math.min(1, this.trauma + amount);
+  }
+
+  applyShake(delta, time) {
+    if (this.trauma <= 0) return;
+    const s = this.trauma * this.trauma * 0.35;
+    this.camera.position.x += Math.sin(time * 71.3) * s;
+    this.camera.position.y += Math.sin(time * 83.7 + 1.3) * s;
+    this.camera.position.z += Math.sin(time * 67.1 + 2.1) * s;
+    this.camera.rotation.z += Math.sin(time * 57.9) * s * 0.08;
+    this.trauma = Math.max(0, this.trauma - delta * 1.6);
   }
 
   setColliders(colliders) {
@@ -162,6 +179,7 @@ export class CameraController {
       this.updateTransition(delta, robot);
     } else if (this.mode === 'GAMEPLAY') {
       this.updateGameplayCamera(delta, robot);
+      this.applyShake(delta, time);
     } else if (this.mode === 'GAMEOVER') {
       this.updateGameOverCamera(delta, robot);
     }
