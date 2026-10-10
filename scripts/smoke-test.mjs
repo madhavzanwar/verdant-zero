@@ -256,7 +256,7 @@ const acid = await page.evaluate(() => {
   return { sheltered, exposedHealth: s.health };
 });
 check('Skyway shelters from acid rain', acid.sheltered.flag && acid.sheltered.health > 99, JSON.stringify(acid.sheltered));
-check('Acid rain hurts when exposed', acid.exposedHealth < 92, `health=${acid.exposedHealth.toFixed(1)}`);
+check('Acid rain hurts when exposed (3 HP/s)', acid.exposedHealth > 93.5 && acid.exposedHealth < 94.5, `health=${acid.exposedHealth.toFixed(1)}`);
 await page.evaluate(() => { const s = window.__vz_app.survival; s.acidStateTimer = 20; window.step(0.1); });
 
 // --- Vine destroyed reopens the planter

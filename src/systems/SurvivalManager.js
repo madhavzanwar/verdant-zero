@@ -6,7 +6,7 @@ import { showToast } from '../ui/Toasts.js';
  * - Health 100. Regenerates 5 HP/s after 5s without damage.
  * - Water 100 (4 seeds × 25). Water drops (+25) spawn on walkable ground, skyways and alleys.
  * - Light Pulse: 15m radius, clears smog, stuns drones for 6s, 10s cooldown.
- * - Acid rain cycle: warning (6s) → storm (14s), every 70–100s. 6 HP/s unless sheltered under a
+ * - Acid rain cycle: warning (6s) → storm (14s), every 70–100s. 3 HP/s unless sheltered under a
  *   skyway or awning. Damages growing vines.
  * - Smog: density > 0.22 drains health continuously (no hit flash), slows the robot.
  * - Discrete hits (drone lasers) flash the screen, play the hit sound and break the combo.
@@ -18,6 +18,7 @@ const DROP_LIFETIME = 60;
 const PULSE_RADIUS = 15;
 const PULSE_COOLDOWN = 10;
 const STUN_DURATION = 6;
+const ACID_DAMAGE_PER_SEC = 3;  // while unsheltered during a storm (max 42 HP over a full 14s storm)
 
 export class SurvivalManager {
   constructor(scene, city, audioManager, scoreManager = null) {
@@ -376,7 +377,7 @@ export class SurvivalManager {
       }
     } else if (this.acidState === 'ACTIVE') {
       this.sheltered = this.isSheltered(playerPos);
-      if (!this.sheltered) this.applyDrain(6 * delta);
+      if (!this.sheltered) this.applyDrain(ACID_DAMAGE_PER_SEC * delta);
       if (this.plantSystem) {
         for (const v of vines) {
           if (v.growth < 0.85) this.plantSystem.damageVine(v, delta * 0.05);
